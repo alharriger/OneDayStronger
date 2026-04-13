@@ -21,13 +21,29 @@ Update the relevant ai_docs files after major milestones and major additions to 
 
 ## Getting Started
 
-When the build system is established, update this file with:
+```bash
+# Install dependencies
+npm install
 
-- How to install dependencies
-- How to run the development server
-- How to build for production
-- How to run tests (all tests and a single test)
-- How to lint
+# Start the Expo dev server
+npm start          # or: npx expo start
+
+# Run on iOS simulator
+npm run ios        # or: npx expo run:ios
+
+# Run on Android emulator
+npm run android
+
+# Run all tests
+npm run test:ci    # CI mode (no watch, exits with code)
+npx jest --ci --no-coverage
+
+# Run a single test file
+npx jest __tests__/hooks/useWorkoutLogging.test.ts
+
+# Run tests matching a name pattern
+npx jest --testNamePattern="submit.*high pain"
+```
 
 ---
 
