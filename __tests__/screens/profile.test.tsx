@@ -57,6 +57,10 @@ jest.mock('@/lib/auth', () => ({
   signOut: jest.fn(),
 }));
 
+jest.mock('@/services/revision', () => ({
+  invokeRevisePlan: jest.fn().mockResolvedValue({ planId: null, summary: null, error: null }),
+}));
+
 describe('ProfileScreen', () => {
   it('renders without crashing', () => {
     expect(() => render(<ProfileScreen />)).not.toThrow();

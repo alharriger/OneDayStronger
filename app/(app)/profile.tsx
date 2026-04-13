@@ -16,6 +16,7 @@ import { Button, PainScale } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { getProfile } from '@/services/profiles';
 import { getInjuryIntake, getInjuryStatus, updateInjuryStatus } from '@/services/intake';
+import { invokeRevisePlan } from '@/services/revision';
 import { signOut } from '@/lib/auth';
 import type { Database } from '@/lib/database.types';
 
@@ -54,6 +55,9 @@ export default function ProfileScreen() {
   const [symptoms, setSymptoms] = useState('');
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [revisePlanLoading, setRevisePlanLoading] = useState(false);
+  // Track the pain baseline at load time to detect meaningful changes
+  const [originalPainBaseline, setOriginalPainBaseline] = useState<number | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -68,6 +72,7 @@ export default function ProfileScreen() {
       if (s) {
         setPainBaseline(s.pain_level_baseline ?? 0);
         setSymptoms(s.current_symptoms ?? '');
+        setOriginalPainBaseline(s.pain_level_baseline ?? 0);
       }
     }).finally(() => setLoading(false));
   }, [user]);
@@ -82,9 +87,51 @@ export default function ProfileScreen() {
     setSaving(false);
     if (error) {
       Alert.alert('Error', 'Could not save your status. Please try again.');
+      return;
+    }
+
+    setHasChanges(false);
+
+    // Check if the pain baseline changed meaningfully (≥ 2 points)
+    const painShift = originalPainBaseline !== null
+      ? Math.abs(painBaseline - originalPainBaseline)
+      : 0;
+    setOriginalPainBaseline(painBaseline);
+
+    if (painShift >= 2) {
+      Alert.alert(
+        'Status saved',
+        'Your baseline pain has changed significantly. Would you like Claude to revise your rehabilitation plan based on your new status?',
+        [
+          { text: 'Not now', style: 'cancel' },
+          {
+            text: 'Revise plan',
+            onPress: () => handleRevisePlan(),
+          },
+        ]
+      );
     } else {
-      setHasChanges(false);
       Alert.alert('Saved', 'Your injury status has been updated.');
+    }
+  };
+
+  const handleRevisePlan = async () => {
+    if (!user) return;
+    setRevisePlanLoading(true);
+    const { error } = await invokeRevisePlan({
+      pain_level_baseline: painBaseline,
+      current_symptoms: symptoms,
+      last_flare_date: status?.last_flare_date ?? null,
+    });
+    setRevisePlanLoading(false);
+
+    if (error) {
+      Alert.alert('Could not revise plan', error);
+    } else {
+      Alert.alert(
+        'Plan revised',
+        'Your rehabilitation plan has been updated based on your new status. Check the Plan tab to see your revised program.'
+      );
     }
   };
 
@@ -210,6 +257,16 @@ export default function ProfileScreen() {
               </>
             )}
 
+            {/* ── Revise plan loading state ── */}
+            {revisePlanLoading && (
+              <View style={styles.revisePlanBanner}>
+                <ActivityIndicator color={Colors.primary} size="small" />
+                <Text style={styles.revisePlanText}>
+                  Revising your plan with Claude…
+                </Text>
+              </View>
+            )}
+
             {/* ── Sign out ── */}
             <Button
               label="Sign out"
@@ -291,6 +348,19 @@ const styles = StyleSheet.create({
   goalText: {
     ...Typography.body,
     color: Colors.text.primary,
+  } as TextStyle,
+  revisePlanBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.space3,
+    backgroundColor: Colors.bg.surfaceRaised,
+    borderRadius: Radius.md,
+    padding: Spacing.space4,
+    marginTop: Spacing.space5,
+  } as ViewStyle,
+  revisePlanText: {
+    ...Typography.body,
+    color: Colors.text.secondary,
   } as TextStyle,
   signOutButton: { marginTop: Spacing.space6 } as ViewStyle,
   disclaimer: {
