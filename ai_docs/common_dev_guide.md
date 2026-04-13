@@ -147,6 +147,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 | Service functions | `__tests__/services/` |
 | Schema validation | `__tests__/schemas/` |
 | Screen render | `__tests__/screens/` |
+| Edge function pure logic | `__tests__/functions/` |
 | Test helpers | `__tests__/helpers/` (ignored by Jest runner) |
 
 ### Supabase mock
@@ -174,6 +175,38 @@ Screen tests are smoke tests only (render + content assertions). `fireEvent.pres
 ### Known constraint: react-native-renderer version
 
 `react@19.2.5` bundles `react-native-renderer@19.2.3`. RNTL v13 checks the exact version — they match, but the renderer's dev-mode animation guard in `TouchableOpacity.componentDidUpdate` throws when `fireEvent.press` is used in tests. Setting `__DEV__: false` doesn't help because jest-expo overrides it. Workaround: test button accessibility state with `.toHaveProp('disabled', true)` and test press handlers via hook tests.
+
+### Edge function unit tests
+
+Pure TypeScript modules in edge functions (no Deno-specific imports) can be tested directly in Jest by importing via relative path:
+
+```ts
+import { evaluatePlanProgress } from '../../supabase/functions/evolve-plan/evaluator';
+```
+
+This works because Jest's TypeScript transformer handles files outside `src/` as long as they have no `Deno.*` or `https://esm.sh/` imports. Keep evaluators and other pure-logic modules free of Deno dependencies.
+
+---
+
+## Edge function invocation from client services
+
+Calls to `supabase.functions.invoke()` live in `src/services/`, not in screen components or hooks that call supabase directly. This keeps the same service boundary rule consistent for both DB queries and edge function calls.
+
+```ts
+// src/services/revision.ts
+export async function invokeRevisePlan(
+  injuryStatus: InjuryStatusUpdate,
+): Promise<{ planId: string | null; error: string | null }> {
+  const { data, error } = await supabase.functions.invoke('revise-plan', {
+    body: { injuryStatus },
+  });
+  if (error) return { planId: null, error: error.message };
+  if (data?.error) return { planId: null, error: data.error };
+  return { planId: data?.planId ?? null, error: null };
+}
+```
+
+Exception: hooks that call fire-and-forget edge functions (e.g., `useWorkoutLogging` invoking `evolve-plan`) may call `supabase.functions.invoke` directly since there is no meaningful return value to wrap.
 
 ---
 
