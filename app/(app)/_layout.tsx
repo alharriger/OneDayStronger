@@ -2,10 +2,13 @@ import { Tabs } from 'expo-router';
 import { CalendarCheck, ClipboardText, ChartLine, User } from 'phosphor-react-native';
 import { Colors, Typography } from '@/theme';
 import { useOnboardingGuard } from '@/hooks/useOnboardingGuard';
+import { useOfflineSync } from '@/hooks/useOfflineSync';
 
 export default function AppLayout() {
   // Redirect to correct onboarding screen if setup is incomplete
   useOnboardingGuard();
+  // Flush pending workout logs whenever the device comes back online
+  useOfflineSync();
 
   return (
     <Tabs
