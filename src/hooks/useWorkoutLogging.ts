@@ -16,6 +16,8 @@ import { supabase } from '@/lib/supabase';
 import { saveWorkoutLog } from '@/services/workouts';
 import { updateSession } from '@/services/sessions';
 import { createSafetyEvent } from '@/services/safetyEvents';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { enqueueWorkoutLog } from '@/lib/localDb';
 import type { Database } from '@/lib/database.types';
 
 type ExerciseLogInsert = Database['public']['Tables']['exercise_logs']['Insert'];
@@ -45,6 +47,7 @@ export interface WorkoutLoggingState {
   sessionNotes: string;
   exerciseActuals: ExerciseActuals[];
   error: string | null;
+  isQueued: boolean; // true if the log was saved to the offline queue
   setDifficultyRating: (v: number) => void;
   setPainDuringSession: (v: number) => void;
   setSessionNotes: (v: string) => void;
@@ -72,11 +75,13 @@ export function useWorkoutLogging({
   exercises,
 }: UseWorkoutLoggingProps): WorkoutLoggingState {
   const { user } = useAuth();
+  const { isOnline } = useNetworkStatus();
   const [phase, setPhase] = useState<LoggingPhase>('form');
   const [difficultyRating, setDifficultyRating] = useState(5);
   const [painDuringSession, setPainDuringSession] = useState(0);
   const [sessionNotes, setSessionNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [isQueued, setIsQueued] = useState(false);
 
   // Initialize exercise actuals from prescribed exercises
   const [exerciseActuals, setExerciseActuals] = useState<ExerciseActuals[]>(
@@ -113,6 +118,29 @@ export function useWorkoutLogging({
       modifications: ea.modifications || null,
     }));
 
+    // Offline: queue the log for sync on reconnect
+    if (!isOnline) {
+      try {
+        await enqueueWorkoutLog({
+          id: `${sessionId}-${Date.now()}`,
+          session_id: sessionId,
+          workout_id: workoutId,
+          user_id: user.id,
+          difficulty_rating: difficultyRating,
+          pain_during_session: painDuringSession,
+          session_notes: sessionNotes || null,
+          exercise_logs_json: JSON.stringify(exerciseLogInserts),
+          created_at: new Date().toISOString(),
+        });
+        setIsQueued(true);
+        setPhase('success');
+      } catch {
+        setError('Could not save your workout log. Please try again when online.');
+        setPhase('error');
+      }
+      return;
+    }
+
     const { logId, error: logError } = await saveWorkoutLog(
       {
         user_id: user.id,
@@ -140,7 +168,7 @@ export function useWorkoutLogging({
     }).catch(() => {/* silently ignore — evolution retries on next log */});
 
     setPhase('success');
-  }, [user, sessionId, workoutId, difficultyRating, painDuringSession, sessionNotes, exerciseActuals]);
+  }, [user, isOnline, sessionId, workoutId, difficultyRating, painDuringSession, sessionNotes, exerciseActuals]);
 
   const submit = useCallback(async () => {
     // Safety gate: pain > 5 during session requires acknowledgment
@@ -176,6 +204,7 @@ export function useWorkoutLogging({
     sessionNotes,
     exerciseActuals,
     error,
+    isQueued,
     setDifficultyRating,
     setPainDuringSession,
     setSessionNotes,

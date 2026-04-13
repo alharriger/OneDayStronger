@@ -17,6 +17,13 @@ import { submitCheckIn, getTodayCheckIn } from '@/services/checkins';
 import { getWorkoutForSession, getMostRecentWorkout } from '@/services/workouts';
 import { getPendingSafetyEvent } from '@/services/safetyEvents';
 import { getActivePhase } from '@/services/plans';
+import {
+  cacheWorkout,
+  getCachedWorkoutForSession,
+  getCachedWorkoutForDate,
+  cacheActivePhase,
+  type CachedPhaseExercise,
+} from '@/lib/localDb';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -102,6 +109,31 @@ export function useTodayWorkout(): TodayState {
           return;
         }
 
+        // Cache the active phase + exercises for offline use
+        const phaseExerciseCache: CachedPhaseExercise[] = activePhase.phase_exercises.map((pe) => ({
+          phase_id: activePhase.id,
+          exercise_id: pe.exercise_id ?? null,
+          exercise_name: pe.exercises?.name ?? null,
+          prescribed_sets: pe.prescribed_sets ?? null,
+          prescribed_reps: pe.prescribed_reps ?? null,
+          load_target: pe.load_target ?? null,
+          tempo: pe.tempo ?? null,
+          rest_seconds: pe.rest_seconds ?? null,
+          order_index: pe.order_index,
+          notes: pe.notes ?? null,
+        }));
+        cacheActivePhase(
+          {
+            phase_id: activePhase.id,
+            plan_id: activePhase.plan_id,
+            phase_number: activePhase.phase_number,
+            name: activePhase.name,
+            description: activePhase.description ?? null,
+            plain_language_summary: activePhase.plain_language_summary ?? null,
+          },
+          phaseExerciseCache
+        ).catch(() => {/* cache failure is non-critical */});
+
         const result = await createSession({
           user_id: user.id,
           plan_phase_id: activePhase.id,
@@ -126,24 +158,53 @@ export function useTodayWorkout(): TodayState {
       if (existingCheckIn) {
         setCheckInId(existingCheckIn.id);
 
-        // Check for existing workout
+        // Check for existing workout (server first, then local cache)
         const existingWorkout = await getWorkoutForSession(session.id);
         if (existingWorkout) {
+          const exercises = (existingWorkout.generated_workout_exercises ?? []).map((e: Record<string, unknown>) => ({
+            exercise_name: e.exercise_name as string,
+            sets: e.sets as number,
+            reps: e.reps as string,
+            load: e.load as string,
+            tempo: e.tempo as string,
+            rest_seconds: e.rest_seconds as number,
+            notes: e.notes as string,
+          }));
           setWorkout({
             workoutId: existingWorkout.id,
             workout_type: existingWorkout.workout_type as TodayWorkout['workout_type'],
             plain_language_explanation: existingWorkout.plain_language_explanation,
-            exercises: (existingWorkout.generated_workout_exercises ?? []).map((e: Record<string, unknown>) => ({
-              exercise_name: e.exercise_name as string,
-              sets: e.sets as number,
-              reps: e.reps as string,
-              load: e.load as string,
-              tempo: e.tempo as string,
-              rest_seconds: e.rest_seconds as number,
-              notes: e.notes as string,
-            })),
+            exercises,
           });
+          // Refresh local cache with latest server data
+          cacheWorkout({
+            workout_id: existingWorkout.id,
+            session_id: session.id,
+            workout_type: existingWorkout.workout_type as TodayWorkout['workout_type'],
+            plain_language_explanation: existingWorkout.plain_language_explanation,
+            exercises_json: JSON.stringify(exercises),
+            cached_date: new Date().toISOString().split('T')[0],
+            is_fallback: 0,
+            fallback_banner: null,
+          }).catch(() => {});
           setPhase(existingWorkout.workout_type === 'rest_recommendation' ? 'rest_day' : 'workout_ready');
+          return;
+        }
+
+        // No server workout — check local cache before generating
+        const today = new Date().toISOString().split('T')[0];
+        const cachedForToday = await getCachedWorkoutForSession(session.id)
+          ?? await getCachedWorkoutForDate(today).catch(() => null);
+        if (cachedForToday) {
+          setWorkout({
+            workoutId: cachedForToday.workout_id,
+            workout_type: cachedForToday.workout_type,
+            plain_language_explanation: cachedForToday.plain_language_explanation,
+            exercises: JSON.parse(cachedForToday.exercises_json) as WorkoutExercise[],
+            isFallback: cachedForToday.is_fallback === 1,
+            fallbackBanner: cachedForToday.fallback_banner ?? undefined,
+          });
+          setPhase(cachedForToday.workout_type === 'rest_recommendation' ? 'rest_day' : 'workout_ready');
           return;
         }
 
@@ -169,7 +230,24 @@ export function useTodayWorkout(): TodayState {
       });
 
       if (fnError || !data) {
-        // Try to get fallback
+        // Try local cache first (today's cached workout for this session)
+        const today = new Date().toISOString().split('T')[0];
+        const cachedLocal = await getCachedWorkoutForSession(sid)
+          .catch(() => null) ?? await getCachedWorkoutForDate(today).catch(() => null);
+        if (cachedLocal) {
+          setWorkout({
+            workoutId: cachedLocal.workout_id,
+            workout_type: cachedLocal.workout_type,
+            plain_language_explanation: cachedLocal.plain_language_explanation,
+            exercises: JSON.parse(cachedLocal.exercises_json) as WorkoutExercise[],
+            isFallback: true,
+            fallbackBanner: "Using your cached workout — we'll generate a new one when you're back online.",
+          });
+          setPhase(cachedLocal.workout_type === 'rest_recommendation' ? 'rest_day' : 'workout_ready');
+          return;
+        }
+
+        // Fall back to most recent server workout
         const fallback = await getMostRecentWorkout(uid);
         if (fallback) {
           setWorkout({
@@ -198,14 +276,27 @@ export function useTodayWorkout(): TodayState {
         return;
       }
 
+      const exercises: WorkoutExercise[] = data.exercises ?? [];
       setWorkout({
         workoutId: data.workoutId,
         workout_type: data.workout_type,
         plain_language_explanation: data.plain_language_explanation,
-        exercises: data.exercises ?? [],
+        exercises,
         isFallback: data.isFallback ?? false,
         fallbackBanner: data.fallbackBanner,
       });
+
+      // Write to local cache for offline use
+      cacheWorkout({
+        workout_id: data.workoutId,
+        session_id: sid,
+        workout_type: data.workout_type,
+        plain_language_explanation: data.plain_language_explanation,
+        exercises_json: JSON.stringify(exercises),
+        cached_date: new Date().toISOString().split('T')[0],
+        is_fallback: data.isFallback ? 1 : 0,
+        fallback_banner: data.fallbackBanner ?? null,
+      }).catch(() => {/* cache failure is non-critical */});
 
       setPhase(data.workout_type === 'rest_recommendation' ? 'rest_day' : 'workout_ready');
     } catch {

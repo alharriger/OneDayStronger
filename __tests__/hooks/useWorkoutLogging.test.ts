@@ -25,6 +25,16 @@ jest.mock('@/services/safetyEvents', () => ({
   createSafetyEvent: jest.fn().mockResolvedValue({ event: { id: 'se-1' }, error: null }),
 }));
 
+const mockIsOnline = { value: true };
+jest.mock('@/hooks/useNetworkStatus', () => ({
+  useNetworkStatus: () => ({ isOnline: mockIsOnline.value }),
+}));
+
+const mockEnqueueWorkoutLog = jest.fn().mockResolvedValue(undefined);
+jest.mock('@/lib/localDb', () => ({
+  enqueueWorkoutLog: (...args: unknown[]) => mockEnqueueWorkoutLog(...args),
+}));
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const defaultProps = {
@@ -39,7 +49,10 @@ const defaultProps = {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('useWorkoutLogging', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIsOnline.value = true; // default to online
+  });
 
   it('initializes with form phase', () => {
     const { result } = renderHook(() => useWorkoutLogging(defaultProps));
@@ -186,6 +199,82 @@ describe('useWorkoutLogging', () => {
 
       expect(result.current.phase).toBe('error');
       expect(result.current.error).toMatch(/could not save/i);
+    });
+  });
+
+  describe('submit — offline queue', () => {
+    it('enqueues the log when offline instead of calling saveWorkoutLog', async () => {
+      mockIsOnline.value = false;
+      const { saveWorkoutLog } = require('@/services/workouts');
+      const { result } = renderHook(() => useWorkoutLogging(defaultProps));
+
+      await act(async () => {
+        await result.current.submit();
+      });
+
+      expect(saveWorkoutLog).not.toHaveBeenCalled();
+      expect(mockEnqueueWorkoutLog).toHaveBeenCalledTimes(1);
+      expect(result.current.phase).toBe('success');
+    });
+
+    it('sets isQueued to true when log is offline-queued', async () => {
+      mockIsOnline.value = false;
+      const { result } = renderHook(() => useWorkoutLogging(defaultProps));
+
+      await act(async () => {
+        await result.current.submit();
+      });
+
+      expect(result.current.isQueued).toBe(true);
+    });
+
+    it('passes correct fields to enqueueWorkoutLog', async () => {
+      mockIsOnline.value = false;
+      const { result } = renderHook(() => useWorkoutLogging(defaultProps));
+
+      act(() => result.current.setDifficultyRating(7));
+      act(() => result.current.setPainDuringSession(3));
+      act(() => result.current.setSessionNotes('Offline session'));
+
+      await act(async () => {
+        await result.current.submit();
+      });
+
+      expect(mockEnqueueWorkoutLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          session_id: 'session-1',
+          workout_id: 'workout-1',
+          user_id: 'test-user-id',
+          difficulty_rating: 7,
+          pain_during_session: 3,
+          session_notes: 'Offline session',
+        })
+      );
+    });
+
+    it('transitions to error if enqueueWorkoutLog fails', async () => {
+      mockIsOnline.value = false;
+      mockEnqueueWorkoutLog.mockRejectedValueOnce(new Error('SQLite write failed'));
+      const { result } = renderHook(() => useWorkoutLogging(defaultProps));
+
+      await act(async () => {
+        await result.current.submit();
+      });
+
+      expect(result.current.phase).toBe('error');
+      expect(result.current.isQueued).toBe(false);
+    });
+
+    it('isQueued is false on a normal online submit', async () => {
+      mockIsOnline.value = true;
+      const { result } = renderHook(() => useWorkoutLogging(defaultProps));
+
+      await act(async () => {
+        await result.current.submit();
+      });
+
+      expect(result.current.isQueued).toBe(false);
+      expect(result.current.phase).toBe('success');
     });
   });
 });
