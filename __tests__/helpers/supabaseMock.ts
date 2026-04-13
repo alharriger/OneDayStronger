@@ -1,48 +1,40 @@
 /**
  * Helper to create a Supabase-compatible fluent mock chain.
  *
- * The chain supports both:
- * - Queries ending in .single() (select queries)
- * - Queries ending in a chainable call that is itself awaitable (update/delete)
+ * Uses a Proxy so that ANY method on the chain (eq, gte, ilike, order, etc.)
+ * returns the chain itself for further chaining. Only `.single()` and
+ * `.maybeSingle()` resolve to the provided value.
+ *
+ * The chain is also directly thenable so `await supabase.from().update().eq()`
+ * works for update/delete patterns.
  */
 
-export interface ChainMock {
-  select: jest.Mock;
-  update: jest.Mock;
-  insert: jest.Mock;
-  eq: jest.Mock;
-  order: jest.Mock;
-  limit: jest.Mock;
-  single: jest.Mock;
-}
+export type ChainMock = Record<string, jest.Mock> & {
+  then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => Promise<unknown>;
+};
 
-/**
- * Creates a fully chainable mock where every method returns the chain,
- * and .single() resolves to the provided value. The chain itself is also
- * thenable so `await supabase.from().update().eq(...)` works too.
- */
 export function createChain(resolveValue: { data: unknown; error: unknown }): ChainMock {
-  // Make chain thenable so `await chain` works for update/delete
-  const then = (resolve: (v: any) => any, reject?: (e: any) => any) =>
+  const methodCache: Record<string, jest.Mock> = {};
+
+  const then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
     Promise.resolve(resolveValue).then(resolve, reject);
 
-  const chain: ChainMock & { then: typeof then } = {
-    select: jest.fn(),
-    update: jest.fn(),
-    insert: jest.fn(),
-    eq: jest.fn(),
-    order: jest.fn(),
-    limit: jest.fn(),
-    single: jest.fn().mockResolvedValue(resolveValue),
-    then,
+  const handler: ProxyHandler<typeof then> = {
+    get(_target, prop: string) {
+      if (prop === 'then') return then;
+
+      if (!methodCache[prop]) {
+        if (prop === 'single' || prop === 'maybeSingle') {
+          methodCache[prop] = jest.fn().mockResolvedValue(resolveValue);
+        } else {
+          methodCache[prop] = jest.fn().mockReturnValue(proxy);
+        }
+      }
+
+      return methodCache[prop];
+    },
   };
 
-  // Each method returns the chain for further chaining
-  (Object.keys(chain) as Array<keyof ChainMock>).forEach((method) => {
-    if (method !== 'single' && method !== ('then' as any)) {
-      chain[method].mockReturnValue(chain);
-    }
-  });
-
-  return chain;
+  const proxy = new Proxy(then, handler) as unknown as ChainMock;
+  return proxy;
 }

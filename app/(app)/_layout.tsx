@@ -52,6 +52,12 @@ export default function AppLayout() {
           tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="log-workout"
+        options={{
+          href: null, // hidden from tab bar; reached via router.push
+        }}
+      />
     </Tabs>
   );
 }
