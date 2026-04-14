@@ -30,6 +30,9 @@ export function useAuth(): AuthState {
         session: data.session,
         loading: false,
       });
+    }).catch((err) => {
+      console.error('[useAuth] getSession error:', err);
+      setState({ user: null, session: null, loading: false });
     });
 
     // Subscribe to auth events (sign in, sign out, token refresh)

@@ -34,6 +34,12 @@ export default function RootLayout() {
     SplashScreen.hideAsync();
   }, [isReady]);
 
+  // Hard timeout — always hide splash after 5s to surface errors
+  useEffect(() => {
+    const t = setTimeout(() => SplashScreen.hideAsync(), 5000);
+    return () => clearTimeout(t);
+  }, []);
+
   useEffect(() => {
     if (!isReady) return;
 
