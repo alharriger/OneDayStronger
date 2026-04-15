@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -10,10 +11,11 @@ import {
   useFonts,
 } from '@expo-google-fonts/inter';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/lib/supabase';
 
-// Keep splash visible until fonts + auth are ready
-SplashScreen.preventAutoHideAsync();
+// NOTE: Do NOT call SplashScreen.preventAutoHideAsync() here.
+// expo-router manages the splash screen via its own internal track.
+// Calling the public preventAutoHideAsync() creates a second lock that
+// must be released separately, and caused the splash to never dismiss.
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -34,34 +36,29 @@ export default function RootLayout() {
     SplashScreen.hideAsync();
   }, [isReady]);
 
-  // Hard timeout — always hide splash after 5s to surface errors
-  useEffect(() => {
-    const t = setTimeout(() => SplashScreen.hideAsync(), 5000);
-    return () => clearTimeout(t);
-  }, []);
-
   useEffect(() => {
     if (!isReady) return;
 
     const inAuthGroup = segments[0] === '(auth)';
 
     if (!user && !inAuthGroup) {
-      // Not signed in — route to login
       router.replace('/(auth)/login');
     } else if (user) {
-      // Signed in — let the onboarding guard handle where to send them
       if (inAuthGroup) {
         router.replace('/(app)/today');
       }
     }
   }, [user, isReady, segments]);
 
-  if (!isReady) return null;
-
   return (
     <>
       <StatusBar style="auto" />
       <Slot />
+      {!isReady && (
+        <View style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: '#0F6E56', justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator color="#FFFFFF" size="large" />
+        </View>
+      )}
     </>
   );
 }

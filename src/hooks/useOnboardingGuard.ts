@@ -18,13 +18,21 @@ export function useOnboardingGuard() {
     if (!user) return;
 
     async function checkOnboardingStep() {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
         .select('onboarding_step')
         .eq('user_id', user!.id)
         .single();
 
-      if (!data) return;
+      if (error) {
+        console.error('[useOnboardingGuard] profile query error:', error.code, error.message);
+        return;
+      }
+      if (!data) {
+        console.warn('[useOnboardingGuard] no profile found for user:', user!.id);
+        return;
+      }
+      console.log('[useOnboardingGuard] onboarding_step:', data.onboarding_step);
 
       switch (data.onboarding_step) {
         case 'intake':

@@ -17,7 +17,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { getProfile } from '@/services/profiles';
 import { getInjuryIntake, getInjuryStatus, updateInjuryStatus } from '@/services/intake';
 import { invokeRevisePlan } from '@/services/revision';
-import { signOut } from '@/lib/auth';
+import { signOut, deleteAccount } from '@/lib/auth';
 import type { Database } from '@/lib/database.types';
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
@@ -144,6 +144,31 @@ export default function ProfileScreen() {
         onPress: () => signOut(),
       },
     ]);
+  };
+
+  const [deletingAccount, setDeletingAccount] = useState(false);
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete account',
+      'This will permanently delete your account and all your data. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: async () => {
+            setDeletingAccount(true);
+            const { error } = await deleteAccount();
+            setDeletingAccount(false);
+            if (error) {
+              Alert.alert('Error', 'Could not delete account. Please try again.');
+            }
+            // Root layout will redirect to login when auth state clears
+          },
+        },
+      ]
+    );
   };
 
   const REHAB_GOAL_LABELS: Record<string, string> = {
@@ -275,6 +300,14 @@ export default function ProfileScreen() {
               style={styles.signOutButton}
             />
 
+            <Button
+              label={deletingAccount ? 'Deleting…' : 'Delete account'}
+              variant="secondary"
+              onPress={handleDeleteAccount}
+              loading={deletingAccount}
+              style={styles.deleteButton}
+            />
+
             <Text style={styles.disclaimer}>
               One Day Stronger is an educational tool and is not a substitute for professional
               medical care. Always consult a qualified healthcare professional before starting
@@ -363,6 +396,7 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
   } as TextStyle,
   signOutButton: { marginTop: Spacing.space6 } as ViewStyle,
+  deleteButton: { marginTop: Spacing.space3 } as ViewStyle,
   disclaimer: {
     ...Typography.bodySmall,
     color: Colors.text.disabled,

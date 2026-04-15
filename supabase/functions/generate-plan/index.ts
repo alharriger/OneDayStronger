@@ -247,52 +247,112 @@ Deno.serve(async (req: Request) => {
       status,
     );
 
-    // First attempt
-    let callResult = await callClaude(SYSTEM_PROMPT, userMessage);
+    const isMock = Deno.env.get('MOCK_LLM') === 'true';
     let parsed: GeneratePlanResponse;
-    let validationError: string | null = null;
 
-    try {
-      const json = JSON.parse(callResult.content);
-      parsed = validateGeneratePlanResponse(json);
-    } catch (err) {
-      validationError = (err as Error).message;
-
-      // One automatic retry with error appended
-      const retryMessage = `${userMessage}\n\nYour previous response failed schema validation with this error: ${validationError}\nPlease fix the JSON and try again.`;
-      callResult = await callClaude(SYSTEM_PROMPT, retryMessage);
+    if (isMock) {
+      console.log('[generate-plan] MOCK_LLM=true — using hardcoded plan');
+      parsed = {
+        plain_language_summary:
+          'Your 3-phase PHT rehabilitation plan is designed to gradually load your hamstring tendon over approximately 16 weeks. You will start with isometric holds to reduce pain, progress to eccentric loading to rebuild tendon strength, and finish with functional movements to return to your goal activity. Work within the pain guidelines and do not rush progressions.',
+        phases: [
+          {
+            phase_number: 1,
+            name: 'Pain Management & Isometrics',
+            description: 'Establish pain-free tendon loading using isometric contractions to reduce pain sensitization.',
+            plain_language_summary: 'This phase uses static holds to wake up your hamstring without aggravating the tendon. Most people notice reduced pain within 2–3 weeks. Keep pain at or below 3/10 during every exercise.',
+            estimated_duration_weeks: 4,
+            progression_criteria: { pain_threshold: 2, load_tolerance_pct: 80, consistency_pct: 70, window_days: 14 },
+            regression_criteria: { pain_consecutive_sessions: 2, missed_sessions_window: 3 },
+            exercises: [
+              { name: 'Isometric Hamstring Bridge', sets: 3, reps: '45s hold', load_target: 'bodyweight', tempo: 'controlled', rest_seconds: 90, notes: 'Press heel into floor, hold. Stop if pain exceeds 3/10.' },
+              { name: 'Wall Sit', sets: 3, reps: '30s hold', load_target: 'bodyweight', tempo: 'controlled', rest_seconds: 60, notes: 'Keep hips at 90°. Avoid deeper flexion early on.' },
+              { name: 'Prone Hip Extension', sets: 3, reps: '12', load_target: 'bodyweight', tempo: '2-1-2', rest_seconds: 60, notes: 'Squeeze glute and hamstring at top. Minimal lumbar extension.' },
+            ],
+          },
+          {
+            phase_number: 2,
+            name: 'Eccentric Loading',
+            description: 'Progressive eccentric hamstring loading to stimulate tendon remodelling and strength.',
+            plain_language_summary: 'In this phase you will slow down the lowering part of each exercise to place a controlled load on the tendon. This is the most important phase for long-term recovery. Some discomfort (≤3/10) during exercise is acceptable as long as it settles within 24 hours.',
+            estimated_duration_weeks: 6,
+            progression_criteria: { pain_threshold: 3, load_tolerance_pct: 85, consistency_pct: 75, window_days: 21 },
+            regression_criteria: { pain_consecutive_sessions: 2, missed_sessions_window: 4 },
+            exercises: [
+              { name: 'Nordic Hamstring Curl', sets: 3, reps: '6', load_target: 'bodyweight', tempo: '4-0-1', rest_seconds: 120, notes: 'Lower slowly over 4 seconds. Use hands to return if needed.' },
+              { name: 'Single-Leg Romanian Deadlift', sets: 3, reps: '8–10', load_target: 'light resistance band', tempo: '3-1-2', rest_seconds: 90, notes: 'Hinge at hip, keep spine neutral. Limit forward lean initially.' },
+              { name: 'Isometric Hamstring Bridge', sets: 2, reps: '30s hold', load_target: 'bodyweight', tempo: 'controlled', rest_seconds: 60, notes: 'Used as warm-up before eccentric work.' },
+            ],
+          },
+          {
+            phase_number: 3,
+            name: 'Functional Strengthening',
+            description: 'Sport-specific and daily-life loading patterns to prepare for return to goal activity.',
+            plain_language_summary: 'The final phase bridges the gap between rehab exercises and your everyday activities or sport. You will add speed, load, and complexity. Progress only when pain stays below 3/10 and you feel confident in the movements.',
+            estimated_duration_weeks: 6,
+            progression_criteria: { pain_threshold: 3, load_tolerance_pct: 90, consistency_pct: 80, window_days: 21 },
+            regression_criteria: { pain_consecutive_sessions: 3, missed_sessions_window: 4 },
+            exercises: [
+              { name: 'Deadlift', sets: 3, reps: '8', load_target: '30% bodyweight', tempo: '2-1-2', rest_seconds: 120, notes: 'Add load gradually. Stop if pain exceeds 3/10.' },
+              { name: 'Single-Leg Romanian Deadlift', sets: 3, reps: '10–12', load_target: '20% bodyweight', tempo: '3-1-2', rest_seconds: 90, notes: 'Progress to dumbbell or kettlebell.' },
+              { name: 'Walking Lunge', sets: 3, reps: '10 per leg', load_target: 'bodyweight', tempo: 'controlled', rest_seconds: 75, notes: 'Keep torso upright and avoid deep hip flexion if painful.' },
+            ],
+          },
+        ],
+      };
+      // Log mock call
+      await logLlmCall({
+        supabase, userId: user.id, edgeFunction: 'generate-plan',
+        promptVersion: `${PROMPT_VERSION}-mock`,
+        inputTokens: 0, outputTokens: 0,
+        latencyMs: 0, success: true,
+      });
+    } else {
+      // First attempt
+      let callResult = await callClaude(SYSTEM_PROMPT, userMessage);
+      let validationError: string | null = null;
 
       try {
         const json = JSON.parse(callResult.content);
         parsed = validateGeneratePlanResponse(json);
-        validationError = null;
-      } catch (retryErr) {
-        // Log failed call and return user-facing error
-        await logLlmCall({
-          supabase, userId: user.id, edgeFunction: 'generate-plan',
-          promptVersion: PROMPT_VERSION,
-          inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
-          latencyMs: callResult.latencyMs, success: false,
-          errorMessage: (retryErr as Error).message,
-        });
+      } catch (err) {
+        validationError = (err as Error).message;
 
-        return new Response(
-          JSON.stringify({
-            error: 'We had trouble generating your plan. Please try again.',
-            retryable: true,
-          }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
+        // One automatic retry with error appended
+        const retryMessage = `${userMessage}\n\nYour previous response failed schema validation with this error: ${validationError}\nPlease fix the JSON and try again.`;
+        callResult = await callClaude(SYSTEM_PROMPT, retryMessage);
+
+        try {
+          const json = JSON.parse(callResult.content);
+          parsed = validateGeneratePlanResponse(json);
+          validationError = null;
+        } catch (retryErr) {
+          await logLlmCall({
+            supabase, userId: user.id, edgeFunction: 'generate-plan',
+            promptVersion: PROMPT_VERSION,
+            inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
+            latencyMs: callResult.latencyMs, success: false,
+            errorMessage: (retryErr as Error).message,
+          });
+
+          return new Response(
+            JSON.stringify({
+              error: 'We had trouble generating your plan. Please try again.',
+              retryable: true,
+            }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          );
+        }
       }
-    }
 
-    // Log successful call
-    await logLlmCall({
-      supabase, userId: user.id, edgeFunction: 'generate-plan',
-      promptVersion: PROMPT_VERSION,
-      inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
-      latencyMs: callResult.latencyMs, success: true,
-    });
+      // Log successful call
+      await logLlmCall({
+        supabase, userId: user.id, edgeFunction: 'generate-plan',
+        promptVersion: PROMPT_VERSION,
+        inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
+        latencyMs: callResult.latencyMs, success: true,
+      });
+    }
 
     // Insert plan, phases, and exercises
     const planId = await insertPlan(supabase, user.id, parsed!, profile.rehab_goal);

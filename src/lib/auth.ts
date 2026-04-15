@@ -49,6 +49,30 @@ export async function getSession(): Promise<Session | null> {
   return data.session;
 }
 
+// ─── Delete Account ───────────────────────────────────────────────────────────
+
+/**
+ * Permanently deletes the current user's account and all associated data.
+ *
+ * Flow:
+ * 1. Reads the active session — returns early if unauthenticated.
+ * 2. Calls the `delete-account` edge function (uses service role to delete
+ *    the auth user; all related rows cascade-delete via FK constraints).
+ * 3. Signs out locally so the auth state clears and the root layout
+ *    redirects to the login screen.
+ */
+export async function deleteAccount(): Promise<{ error: string | null }> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return { error: 'Not authenticated' };
+
+  const { error } = await supabase.functions.invoke('delete-account');
+  if (error) return { error: error.message };
+
+  // Sign out locally after the server-side delete
+  await supabase.auth.signOut();
+  return { error: null };
+}
+
 // ─── Auth State Change ────────────────────────────────────────────────────────
 
 export function onAuthStateChange(

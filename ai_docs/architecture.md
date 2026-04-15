@@ -82,13 +82,16 @@ Main App (tab navigation)
 
 All business logic that touches external APIs or sensitive operations lives here. The client calls these functions authenticated; the function runs with its own server-side secrets.
 
-| Function | Trigger | Responsibility |
-|---|---|---|
-| `generate-plan` | After intake completion | Calls Claude with full intake → validates response schema → inserts plan, phases, exercises |
-| `generate-workout` | After check-in submitted | Calls Claude with check-in + current phase → validates → inserts generated workout |
-| `evolve-plan` | After workout log saved | Evaluates session data across all three dimensions → determines progression / regression / hold |
-| `revise-plan` | After injury status update | Calls Claude with updated status + current plan → generates revised plan, supersedes old |
-| `r2-presign` | On-demand (admin) | Generates pre-signed Cloudflare R2 URL for exercise video uploads |
+| Function | Trigger | Responsibility | Auth |
+|---|---|---|---|
+| `generate-plan` | After intake completion | Calls Claude with full intake → validates response schema → inserts plan, phases, exercises | `verify_jwt: false` — validates JWT internally using service role key |
+| `generate-workout` | After check-in submitted | Calls Claude with check-in + current phase → validates → inserts generated workout | `verify_jwt: true` |
+| `evolve-plan` | After workout log saved | Evaluates session data across all three dimensions → determines progression / regression / hold | `verify_jwt: true` |
+| `revise-plan` | After injury status update | Calls Claude with updated status + current plan → generates revised plan, supersedes old | `verify_jwt: true` |
+| `delete-account` | User-initiated from Profile | Deletes auth user via service role → cascades all related rows via FK constraints → client signs out locally | `verify_jwt: true` |
+| `r2-presign` | On-demand (admin) | Generates pre-signed Cloudflare R2 URL for exercise video uploads | `verify_jwt: true` |
+
+**Note on `generate-plan` auth:** The gateway-level `verify_jwt: false` avoids Supabase injecting a second JWT validation before the function code runs. The function performs its own JWT verification (`supabase.auth.getUser(token)`) using the service role key. This is intentional — it avoids double-validation overhead while keeping auth fully enforced inside the function. All other functions use the standard gateway JWT check.
 
 ---
 

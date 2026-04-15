@@ -8,39 +8,48 @@ Development conventions, patterns, and workflows for One Day Stronger.
 
 ```
 app/
-  _layout.tsx              — root layout, auth gate, font loading
-  (auth)/                  — login.tsx, signup.tsx
-  (onboarding)/            — welcome, intake, goal-selection, plan-generation, plan-summary
+  _layout.tsx              — root layout, auth gate, font loading, splash screen
+  index.tsx                — root route redirect (required by expo-router for `/`)
+  (auth)/                  — login.tsx, signup.tsx (with email confirmation state)
+  (onboarding)/            — welcome, intake (4-step), goal-selection,
+                             plan-generation, plan-summary
   (app)/                   — today, plan, history, profile, log-workout (hidden from tab bar)
 
 src/
-  components/ui/           — design system components (Button, Card, PainScale, …)
+  components/ui/           — Button, Card, FormField, PainScale, SegmentedSelector, …
   hooks/                   — useAuth, useOnboardingGuard, useIntakeForm,
-                             useTodayWorkout, useWorkoutLogging
+                             useTodayWorkout, useWorkoutLogging,
+                             useOfflineSync, useNetworkStatus
   services/                — typed Supabase wrappers: profiles, intake, plans,
-                             sessions, checkins, workouts, evolution, safetyEvents
+                             sessions, checkins, workouts, evolution, safetyEvents, revision
   lib/
     supabase.ts            — Supabase client (expo-secure-store adapter)
-    auth.ts                — signUp, signIn, signOut, getSession
-    database.types.ts      — fully typed Database interface (all 16 tables)
-  theme/                   — colors, typography, spacing, radius, shadows
+    auth.ts                — signUp, signIn, signOut, getSession, deleteAccount
+    localDb.ts             — SQLite schema + CRUD helpers (offline cache + sync queue)
+    database.types.ts      — fully typed Database interface (all tables)
+  theme/                   — Colors, Typography, Spacing, Radius, Shadows
 
 supabase/
   migrations/              — 0001_initial_schema.sql, 0002_rls_policies.sql
   seed.sql                 — 18 PHT exercises
   functions/
     _shared/               — claude.ts, llm_logger.ts, cors.ts, validation.ts
-    generate-plan/         — index.ts
-    generate-workout/      — index.ts, fallback.ts
-    evolve-plan/           — (Phase 4)
-    revise-plan/           — (Phase 4)
+    generate-plan/         — onboarding plan generation (verify_jwt: false)
+    generate-workout/      — daily workout generation + fallback.ts
+    evolve-plan/           — automatic phase progression/regression
+    revise-plan/           — manual plan revision from profile
+    delete-account/        — permanent account + data deletion (service role)
 
 __tests__/
   helpers/supabaseMock.ts  — createChain() Proxy-based Supabase fluent chain mock
-  hooks/                   — useIntakeForm, useWorkoutLogging
+  hooks/                   — useIntakeForm, useWorkoutLogging, useNetworkStatus,
+                             useOfflineSync, useOnboardingGuard
+  lib/                     — auth (signUp, signIn, signOut, deleteAccount), localDb
   schemas/                 — llmContracts (Zod, mirrors ai_docs/llm_contracts.md)
-  screens/                 — welcome, goalSelection, today, plan, history, profile
-  services/                — profiles, checkins, sessions, workouts, evolution, safetyEvents
+  screens/                 — welcome, signup, intake, goalSelection, planGeneration,
+                             today, plan, history, profile
+  services/                — profiles, checkins, sessions, workouts,
+                             evolution, safetyEvents, revision
 ```
 
 ---
@@ -216,6 +225,7 @@ Exception: hooks that call fire-and-forget edge functions (e.g., `useWorkoutLogg
 |---|---|---|
 | `APP_ENV` | Edge function env | `dev` \| `prod` |
 | `ANTHROPIC_API_KEY` | Supabase edge function secret | — |
+| `MOCK_LLM` | Supabase edge function secret | `true` \| unset — bypasses Claude API in `generate-plan`; returns hardcoded 3-phase plan |
 | `SUPABASE_URL` | Supabase edge function env (auto) | — |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase edge function env (auto) | — |
 | `EXPO_PUBLIC_SUPABASE_URL` | `.env` | — |

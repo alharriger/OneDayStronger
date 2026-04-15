@@ -55,6 +55,7 @@ jest.mock('@/services/intake', () => ({
 
 jest.mock('@/lib/auth', () => ({
   signOut: jest.fn(),
+  deleteAccount: jest.fn().mockResolvedValue({ error: null }),
 }));
 
 jest.mock('@/services/revision', () => ({
@@ -85,9 +86,27 @@ describe('ProfileScreen — with data loaded', () => {
     expect(screen.getByText('Sign out')).toBeTruthy();
   });
 
+  it('shows the delete account button', async () => {
+    render(<ProfileScreen />);
+    await screen.findByText('Delete account');
+    expect(screen.getByText('Delete account')).toBeTruthy();
+  });
+
   it('shows the educational disclaimer', async () => {
     render(<ProfileScreen />);
     await screen.findByText(/educational tool/i);
     expect(screen.getByText(/educational tool/i)).toBeTruthy();
+  });
+
+  it('shows intake information section when intake data is present', async () => {
+    render(<ProfileScreen />);
+    await screen.findByText('Intake information');
+    expect(screen.getByText('Intake information')).toBeTruthy();
+  });
+
+  it('shows rehab goal section when goal is set', async () => {
+    render(<ProfileScreen />);
+    await screen.findByText('Rehab goal');
+    expect(screen.getByText('Return to running')).toBeTruthy();
   });
 });

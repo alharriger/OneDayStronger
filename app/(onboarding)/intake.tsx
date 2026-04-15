@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Alert,
   ViewStyle,
   TextStyle,
   Platform,
@@ -96,6 +97,9 @@ export default function IntakeScreen() {
       const { error } = await submitIntake();
       if (!error) {
         router.replace('/(onboarding)/goal-selection');
+      } else {
+        console.error('[intake] submitIntake error:', error);
+        Alert.alert('Could not save', error);
       }
     }
   }

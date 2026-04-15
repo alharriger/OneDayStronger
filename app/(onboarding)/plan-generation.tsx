@@ -77,12 +77,9 @@ export default function PlanGenerationScreen() {
         throw new Error(error.message);
       }
 
-      if (!data?.success) {
+      if (!data?.planId) {
         throw new Error(data?.error ?? 'Plan generation failed.');
       }
-
-      // Mark onboarding complete
-      await updateOnboardingStep(user!.id, 'complete');
 
       setStatus('success');
 

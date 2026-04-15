@@ -12,6 +12,7 @@ export default function SignUpScreen() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
 
   async function handleSignUp() {
     if (!email.trim()) {
@@ -35,8 +36,33 @@ export default function SignUpScreen() {
       return;
     }
 
-    // Root layout handles navigation after auth state change.
-    // User lands in onboarding since onboarding_step = 'intake' by default.
+    setConfirmed(true);
+  }
+
+  if (confirmed) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.confirmContainer}>
+          <Text style={styles.title}>Check your email</Text>
+          <Text style={styles.subtitle}>
+            We sent a confirmation link to{'\n'}
+            <Text style={styles.emailHighlight}>{email}</Text>
+          </Text>
+          <Text style={[styles.subtitle, { marginTop: 16 }]}>
+            Tap the link in the email, then come back and sign in.
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.replace('/(auth)/login')}
+            style={styles.switchRow}
+            accessibilityRole="button"
+          >
+            <Text style={styles.switchText}>
+              <Text style={styles.switchLink}>Go to sign in</Text>
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
   }
 
   return (
@@ -130,4 +156,11 @@ const styles = StyleSheet.create({
   switchRow: { alignItems: 'center', paddingVertical: Spacing.space2 },
   switchText: { ...Typography.body, color: Colors.text.secondary },
   switchLink: { color: Colors.primary },
+  confirmContainer: {
+    flex: 1,
+    padding: Spacing.screenHorizontal,
+    paddingTop: Spacing.space10,
+    gap: Spacing.space4,
+  },
+  emailHighlight: { color: Colors.text.primary, fontWeight: '600' },
 });
