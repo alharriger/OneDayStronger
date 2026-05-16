@@ -30,10 +30,10 @@ src/
   theme/                   — Colors, Typography, Spacing, Radius, Shadows
 
 supabase/
-  migrations/              — 0001_initial_schema.sql, 0002_rls_policies.sql
+  migrations/              — 0001_initial_schema.sql, 0002_rls_policies.sql, 0003_pgvector_knowledge.sql
   seed.sql                 — 18 PHT exercises
   functions/
-    _shared/               — claude.ts, llm_logger.ts, cors.ts, validation.ts
+    _shared/               — llm.ts, rag.ts, llm_logger.ts, cors.ts, validation.ts
     generate-plan/         — onboarding plan generation (verify_jwt: false)
     generate-workout/      — daily workout generation + fallback.ts
     evolve-plan/           — automatic phase progression/regression
@@ -131,12 +131,13 @@ Edge functions are Deno TypeScript in `supabase/functions/`. Each function follo
 1. Parse and validate auth header → get `user`
 2. Parse request body
 3. Fetch any DB state needed for the prompt
-4. Perform safety checks (before calling Claude)
-5. Call `callClaude()` from `_shared/claude.ts`
-6. Validate response with `_shared/validation.ts` (one retry on failure)
-7. Log call with `logLlmCall()` from `_shared/llm_logger.ts`
-8. Write validated data to DB
-9. Return JSON response
+4. Perform safety checks (before calling LLM)
+5. Retrieve RAG context via `retrieveKnowledge()` + `formatKnowledgeContext()` from `_shared/rag.ts` (failures swallowed — degraded but functional)
+6. Call `callLLM()` from `_shared/llm.ts` with `systemPromptWithContext`
+7. Validate response with `_shared/validation.ts` (one retry on failure)
+8. Log call with `logLlmCall()` from `_shared/llm_logger.ts`
+9. Write validated data to DB
+10. Return JSON response
 
 All imports use `https://esm.sh/...` for npm packages. No `npm:` imports.
 
@@ -224,8 +225,9 @@ Exception: hooks that call fire-and-forget edge functions (e.g., `useWorkoutLogg
 | Variable | Where set | Values |
 |---|---|---|
 | `APP_ENV` | Edge function env | `dev` \| `prod` |
-| `ANTHROPIC_API_KEY` | Supabase edge function secret | — |
-| `MOCK_LLM` | Supabase edge function secret | `true` \| unset — bypasses Claude API in `generate-plan`; returns hardcoded 3-phase plan |
+| `GROQ_API_KEY` | Supabase edge function secret | From console.groq.com — free tier, primary LLM |
+| `GEMINI_API_KEY` | Supabase edge function secret | From aistudio.google.com — LLM fallback + RAG embeddings |
+| `MOCK_LLM` | Supabase edge function secret | `true` \| unset — bypasses all LLM calls; returns hardcoded responses in `generate-plan`, `generate-workout`, `revise-plan` |
 | `SUPABASE_URL` | Supabase edge function env (auto) | — |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase edge function env (auto) | — |
 | `EXPO_PUBLIC_SUPABASE_URL` | `.env` | — |
@@ -237,17 +239,14 @@ The mobile client uses `EXPO_PUBLIC_*` vars (via `expo-constants`). Edge functio
 
 ## LLM model gate
 
-Enforced in `supabase/functions/_shared/claude.ts`:
+Handled automatically in `supabase/functions/_shared/llm.ts`:
 
-```ts
-export function getModel(): string {
-  return Deno.env.get('APP_ENV') === 'prod'
-    ? 'claude-sonnet-4-6'
-    : 'claude-haiku-4-5-20251001';
-}
-```
+- **Primary:** Groq `llama-3.3-70b-versatile` — called first on every request
+- **Fallback:** Gemini `gemini-2.0-flash-exp` — used automatically if Groq returns any error (rate limit, network, non-2xx)
 
-Never call `claude-sonnet-4-6` in dev. Set `APP_ENV=prod` only when testing prod model behavior explicitly.
+`getModel()` returns the model that actually responded on the last call. This value is logged in `llm_call_logs.model` so you can monitor Groq vs Gemini usage.
+
+Use `MOCK_LLM=true` in dev to skip all LLM calls entirely — no API quota consumed.
 
 ---
 

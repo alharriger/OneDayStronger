@@ -15,7 +15,8 @@
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
-import { callClaude } from '../_shared/claude.ts';
+import { callLLM } from '../_shared/llm.ts';
+import { retrieveKnowledge, formatKnowledgeContext } from '../_shared/rag.ts';
 import { logLlmCall } from '../_shared/llm_logger.ts';
 import { validateGeneratePlanResponse, type GeneratePlanResponse, type PlanPhase } from '../_shared/validation.ts';
 
@@ -266,8 +267,21 @@ Deno.serve(async (req: Request) => {
       newStatus: injuryStatus,
     });
 
-    // ── Call Claude (one retry on schema failure) ──────────────────────────
-    let callResult = await callClaude(SYSTEM_PROMPT, userMessage);
+    // RAG: retrieve relevant clinical knowledge
+    let knowledgeContext = '';
+    try {
+      const chunks = await retrieveKnowledge(
+        supabase,
+        `PHT plan revision pain baseline ${injuryStatus.pain_level_baseline} ${injuryStatus.current_symptoms}`,
+      );
+      knowledgeContext = formatKnowledgeContext(chunks);
+    } catch (ragErr) {
+      console.warn('[revise-plan] RAG retrieval failed:', (ragErr as Error).message);
+    }
+    const systemPromptWithContext = SYSTEM_PROMPT + knowledgeContext;
+
+    // ── Call LLM (one retry on schema failure) ─────────────────────────────
+    let callResult = await callLLM(systemPromptWithContext, userMessage);
     let parsed: GeneratePlanResponse;
     let validationError: string | null = null;
 
@@ -277,7 +291,7 @@ Deno.serve(async (req: Request) => {
     } catch (err) {
       validationError = (err as Error).message;
       const retryMessage = `${userMessage}\n\nYour previous response failed schema validation: ${validationError}\nPlease fix the JSON and try again.`;
-      callResult = await callClaude(SYSTEM_PROMPT, retryMessage);
+      callResult = await callLLM(systemPromptWithContext, retryMessage);
 
       try {
         const json = JSON.parse(callResult.content);

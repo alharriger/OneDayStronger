@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **One Day Stronger** is a mobile rehab companion app for people rehabbing injuries without consistent access to physical therapy. The MVP supports Proximal Hamstring Tendinopathy (PHT) users. The core loop is: daily check-in → LLM-generated workout → workout logging → adaptive plan evolution.
 
-**Stack:** React Native (Expo) · Supabase (PostgreSQL + Auth + Edge Functions) · Cloudflare R2 · Claude API (`claude-sonnet-4-6`)
+**Stack:** React Native (Expo) · Supabase (PostgreSQL + pgvector + Auth + Edge Functions) · Cloudflare R2 · Groq (`llama-3.3-70b-versatile`, primary) + Gemini 2.0 Flash (LLM fallback) + Gemini `text-embedding-004` (RAG embeddings)
 
 ## AI Docs
 
@@ -71,9 +71,9 @@ Every LLM call that drives app behavior — workout generation, plan generation,
 
 Maintain separate local/dev and production environments.
 
-- **Dev:** LLM API calls use `claude-haiku-4-5-20251001` or are mocked entirely. Never call `claude-sonnet-4-6` in dev unless specifically testing model behavior.
-- **Production:** `claude-sonnet-4-6` only.
-- Environment is controlled by an env var (`APP_ENV=dev|prod`). Prompt templates and model selection branch on this var inside edge functions.
+- **Dev:** Set `MOCK_LLM=true` in Supabase edge function secrets to bypass all LLM calls and return hardcoded responses. Never make real LLM calls in dev unless specifically testing model behavior.
+- **Production:** Groq (`llama-3.3-70b-versatile`) primary, Gemini 2.0 Flash automatic fallback on any Groq error.
+- Environment is controlled by an env var (`APP_ENV=dev|prod`). `MOCK_LLM=true` bypasses the LLM entirely in `generate-plan`, `generate-workout`, and `revise-plan`.
 
 ### Graceful Fallbacks
 
@@ -108,11 +108,13 @@ Do not log raw prompt content or LLM output to this table — that data lives in
 
 ### Spend Cap
 
-Monthly Claude API spend cap: **$10 USD**.
+LLM infrastructure uses free tiers only:
 
-- Track spend via the Anthropic usage dashboard or API
-- If approaching the cap, switch dev calls to `claude-haiku-4-5-20251001` first, then mock if needed
-- Do not add features that require high-frequency LLM calls (e.g., streaming responses per keystroke) without evaluating cost impact first
+- **Groq** (`llama-3.3-70b-versatile`): free tier, 30 RPM / 14,400 RPD
+- **Gemini 2.0 Flash** (fallback): free tier, 15 RPM / 1M tokens/day
+- **Gemini `text-embedding-004`** (RAG): free tier, 1500 RPD
+
+If Groq rate limits are hit, the system automatically falls back to Gemini — no user action needed. Use `MOCK_LLM=true` in dev to avoid consuming free-tier quota. Do not add features that require high-frequency LLM calls (e.g., streaming per keystroke) without evaluating rate limit impact first.
 
 ### Testing
 

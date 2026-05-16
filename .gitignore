@@ -19,6 +19,9 @@ ios/
 supabase/.branches/
 supabase/.temp/
 
+# ── Knowledge base (auto-downloaded papers, not committed) ────────────────────
+knowledge/papers/
+
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
