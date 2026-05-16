@@ -767,8 +767,8 @@ async function main(): Promise<void> {
   console.log('\nNext — embed into Supabase:');
   console.log(
     '  SUPABASE_URL=https://rzczrwisocqlzuvouzem.supabase.co \\\n' +
-    '  SUPABASE_SERVICE_ROLE_KEY=<key> \\\n' +
-    '  GEMINI_API_KEY=AIzaSyBbQv5mZRjuvFGI5aC2nN695e8MGf66eOY \\\n' +
+    '  SUPABASE_SERVICE_ROLE_KEY=<service-role-key> \\\n' +
+    '  GEMINI_API_KEY=<gemini-api-key> \\\n' +
     '    npx tsx scripts/ingest-knowledge.ts knowledge/papers',
   );
 }
