@@ -36,7 +36,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const KNOWLEDGE_DIR   = path.join(process.cwd(), 'knowledge');
 const WORDS_PER_CHUNK = 500;
 const OVERLAP_WORDS   = 50;
-const EMBED_DELAY_MS  = 100; // Gemini free tier: 1500 RPD
+// Gemini free tier: 1500 RPD. 2.5s between requests = ~24 req/min,
+// safely under any RPM cap while processing ~10k chunks over ~7 days.
+const EMBED_DELAY_MS  = 2500;
+const MAX_EMBED_RETRIES = 5;
 
 // ─── Category inference from filename ─────────────────────────────────────────
 
@@ -88,29 +91,43 @@ function chunkText(text: string): string[] {
 async function embedText(text: string): Promise<number[]> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GEMINI_API_KEY}`;
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'models/gemini-embedding-001',
-      content: { parts: [{ text }] },
-      outputDimensionality: 768,
-    }),
-  });
+  for (let attempt = 0; attempt <= MAX_EMBED_RETRIES; attempt++) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'models/gemini-embedding-001',
+        content: { parts: [{ text }] },
+        outputDimensionality: 768,
+      }),
+    });
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Gemini Embedding API error ${response.status}: ${body}`);
+    if (response.status === 429) {
+      if (attempt === MAX_EMBED_RETRIES) {
+        throw new Error(`Gemini rate limit exceeded after ${MAX_EMBED_RETRIES} retries. Resume tomorrow.`);
+      }
+      const backoffMs = Math.min(60_000 * Math.pow(2, attempt), 600_000); // 1min, 2min, 4min, 8min, 10min cap
+      console.warn(`\n  [429] Rate limited. Waiting ${Math.round(backoffMs / 1000)}s before retry ${attempt + 1}/${MAX_EMBED_RETRIES}...`);
+      await sleep(backoffMs);
+      continue;
+    }
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Gemini Embedding API error ${response.status}: ${body}`);
+    }
+
+    const data = await response.json() as { embedding?: { values?: number[] } };
+    const values = data.embedding?.values;
+
+    if (!Array.isArray(values) || values.length !== 768) {
+      throw new Error(`Unexpected embedding dimensions: got ${values?.length ?? 0}, expected 768`);
+    }
+
+    return values;
   }
 
-  const data = await response.json() as { embedding?: { values?: number[] } };
-  const values = data.embedding?.values;
-
-  if (!Array.isArray(values) || values.length !== 768) {
-    throw new Error(`Unexpected embedding dimensions: got ${values?.length ?? 0}, expected 768`);
-  }
-
-  return values;
+  throw new Error('embedText: exhausted retries');
 }
 
 // ─── Sleep helper ─────────────────────────────────────────────────────────────
@@ -157,8 +174,6 @@ async function ingestFile(filePath: string): Promise<void> {
 
     console.log(' done');
 
-    // Rate limit: Gemini free tier 1500 RPD ≈ ~1 req/58s sustained, but
-    // burst is allowed. 100ms delay keeps us well within limits.
     if (i < chunks.length - 1) {
       await sleep(EMBED_DELAY_MS);
     }
