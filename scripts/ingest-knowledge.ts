@@ -86,13 +86,13 @@ function chunkText(text: string): string[] {
 // ─── Embedding ────────────────────────────────────────────────────────────────
 
 async function embedText(text: string): Promise<number[]> {
-  const url = `https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent?key=${GEMINI_API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GEMINI_API_KEY}`;
 
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'models/text-embedding-004',
+      model: 'models/gemini-embedding-001',
       content: { parts: [{ text }] },
     }),
   });
