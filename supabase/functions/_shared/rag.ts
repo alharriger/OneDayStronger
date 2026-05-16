@@ -2,7 +2,7 @@
  * RAG (Retrieval-Augmented Generation) helper.
  *
  * At query time:
- *   1. Embeds the query string via Gemini text-embedding-004 (768-dim, free tier)
+ *   1. Embeds the query string via OpenAI text-embedding-3-small (768-dim)
  *   2. Runs a cosine similarity search against knowledge_chunks via search_knowledge RPC
  *   3. Formats retrieved chunks as a <clinical_reference> block for prompt injection
  *
@@ -26,28 +26,29 @@ export interface KnowledgeChunk {
 // ─── Embedding ────────────────────────────────────────────────────────────────
 
 async function embedText(text: string): Promise<number[]> {
-  const apiKey = Deno.env.get('GEMINI_API_KEY');
-  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
+  const apiKey = Deno.env.get('OPENAI_API_KEY');
+  if (!apiKey) throw new Error('OPENAI_API_KEY not set');
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`;
-
-  const response = await fetch(url, {
+  const response = await fetch('https://api.openai.com/v1/embeddings', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
     body: JSON.stringify({
-      model: 'models/gemini-embedding-001',
-      content: { parts: [{ text }] },
-      outputDimensionality: 768,
+      input: text,
+      model: 'text-embedding-3-small',
+      dimensions: 768,
     }),
   });
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Gemini Embedding API error ${response.status}: ${body}`);
+    throw new Error(`OpenAI Embedding API error ${response.status}: ${body}`);
   }
 
   const data = await response.json();
-  const values: number[] = data.embedding?.values;
+  const values: number[] = data.data?.[0]?.embedding;
 
   if (!Array.isArray(values) || values.length !== 768) {
     throw new Error(`Unexpected embedding dimensions: got ${values?.length ?? 0}, expected 768`);

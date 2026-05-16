@@ -2,14 +2,16 @@
  * ingest-knowledge.ts
  *
  * Reads .txt and .md files from the knowledge/ directory, chunks them by
- * paragraph (~500 words, 50-word overlap), embeds each chunk via Gemini
- * text-embedding-004, and upserts rows into knowledge_chunks in Supabase.
+ * paragraph (~500 words, 50-word overlap), embeds each chunk via OpenAI
+ * text-embedding-3-small (768-dim), and upserts rows into knowledge_chunks
+ * in Supabase.
  *
- * Idempotent: deletes existing rows for each source file before inserting,
- * so re-running after editing a file produces clean results.
+ * Resumable: skips files that already have rows in knowledge_chunks, so
+ * re-running after a crash picks up where it left off. To force re-ingest
+ * a file, delete its rows first or pass it explicitly as an argument.
  *
  * Usage:
- *   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... GEMINI_API_KEY=... \
+ *   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... OPENAI_API_KEY=... \
  *     npx tsx scripts/ingest-knowledge.ts
  *
  * Optional: pass filenames as arguments to ingest only specific files:
@@ -24,10 +26,10 @@ import * as path from 'path';
 
 const SUPABASE_URL             = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const GEMINI_API_KEY           = process.env.GEMINI_API_KEY;
+const OPENAI_API_KEY           = process.env.OPENAI_API_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !GEMINI_API_KEY) {
-  console.error('Missing required env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY');
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !OPENAI_API_KEY) {
+  console.error('Missing required env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY');
   process.exit(1);
 }
 
@@ -36,10 +38,9 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const KNOWLEDGE_DIR   = path.join(process.cwd(), 'knowledge');
 const WORDS_PER_CHUNK = 500;
 const OVERLAP_WORDS   = 50;
-// Gemini free tier: 1500 RPD. 2.5s between requests = ~24 req/min,
-// safely under any RPM cap while processing ~10k chunks over ~7 days.
-const EMBED_DELAY_MS  = 2500;
-const MAX_EMBED_RETRIES = 5;
+// OpenAI free tier: 3000 RPM. 50ms between chunks keeps us ~1200 req/min.
+const EMBED_DELAY_MS  = 50;
+const MAX_EMBED_RETRIES = 3;
 
 // ─── Category inference from filename ─────────────────────────────────────────
 
@@ -70,6 +71,20 @@ function chunkText(text: string): string[] {
   for (const para of paragraphs) {
     const paraWords = para.split(/\s+/);
 
+    // If a single paragraph exceeds the chunk size, split it directly
+    if (paraWords.length > WORDS_PER_CHUNK) {
+      if (currentWords.length > 0) {
+        chunks.push(currentWords.join(' '));
+        currentWords = currentWords.slice(-OVERLAP_WORDS);
+      }
+      for (let i = 0; i < paraWords.length; i += WORDS_PER_CHUNK - OVERLAP_WORDS) {
+        const slice = paraWords.slice(i, i + WORDS_PER_CHUNK);
+        chunks.push(slice.join(' '));
+      }
+      currentWords = paraWords.slice(-OVERLAP_WORDS);
+      continue;
+    }
+
     if (currentWords.length + paraWords.length > WORDS_PER_CHUNK && currentWords.length > 0) {
       chunks.push(currentWords.join(' '));
       // Keep overlap from end of previous chunk
@@ -89,36 +104,52 @@ function chunkText(text: string): string[] {
 // ─── Embedding ────────────────────────────────────────────────────────────────
 
 async function embedText(text: string): Promise<number[]> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GEMINI_API_KEY}`;
-
   for (let attempt = 0; attempt <= MAX_EMBED_RETRIES; attempt++) {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'models/gemini-embedding-001',
-        content: { parts: [{ text }] },
-        outputDimensionality: 768,
-      }),
-    });
-
-    if (response.status === 429) {
+    let response: Response;
+    try {
+      response = await fetch('https://api.openai.com/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          input: text,
+          model: 'text-embedding-3-small',
+          dimensions: 768,
+        }),
+      });
+    } catch (networkErr) {
+      // Transient network error (ECONNRESET, ETIMEDOUT, etc.) — retry with backoff
       if (attempt === MAX_EMBED_RETRIES) {
-        throw new Error(`Gemini rate limit exceeded after ${MAX_EMBED_RETRIES} retries. Resume tomorrow.`);
+        throw new Error(`Network error after ${MAX_EMBED_RETRIES} retries: ${(networkErr as Error).message}`);
       }
-      const backoffMs = Math.min(60_000 * Math.pow(2, attempt), 600_000); // 1min, 2min, 4min, 8min, 10min cap
-      console.warn(`\n  [429] Rate limited. Waiting ${Math.round(backoffMs / 1000)}s before retry ${attempt + 1}/${MAX_EMBED_RETRIES}...`);
+      const backoffMs = Math.min(5_000 * Math.pow(2, attempt), 30_000); // 5s, 10s, 20s, 30s cap
+      console.warn(`\n  [network] ${(networkErr as Error).message}. Retrying in ${Math.round(backoffMs / 1000)}s (attempt ${attempt + 1}/${MAX_EMBED_RETRIES})...`);
+      await sleep(backoffMs);
+      continue;
+    }
+
+    if (response.status === 429 || response.status >= 500) {
+      if (attempt === MAX_EMBED_RETRIES) {
+        const body = await response.text();
+        throw new Error(`OpenAI Embedding API error ${response.status} after ${MAX_EMBED_RETRIES} retries: ${body}`);
+      }
+      const backoffMs = response.status === 429
+        ? Math.min(10_000 * Math.pow(2, attempt), 60_000)
+        : Math.min(5_000 * Math.pow(2, attempt), 30_000);
+      console.warn(`\n  [${response.status}] Retrying in ${Math.round(backoffMs / 1000)}s (attempt ${attempt + 1}/${MAX_EMBED_RETRIES})...`);
       await sleep(backoffMs);
       continue;
     }
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`Gemini Embedding API error ${response.status}: ${body}`);
+      throw new Error(`OpenAI Embedding API error ${response.status}: ${body}`);
     }
 
-    const data = await response.json() as { embedding?: { values?: number[] } };
-    const values = data.embedding?.values;
+    const data = await response.json() as { data?: Array<{ embedding?: number[] }> };
+    const values = data.data?.[0]?.embedding;
 
     if (!Array.isArray(values) || values.length !== 768) {
       throw new Error(`Unexpected embedding dimensions: got ${values?.length ?? 0}, expected 768`);
@@ -161,12 +192,25 @@ async function ingestFile(filePath: string): Promise<void> {
 
     const embedding = await embedText(chunks[i]);
 
-    const { error: insertError } = await supabase.from('knowledge_chunks').insert({
-      content: chunks[i],
-      source: filename,
-      category,
-      embedding,
-    });
+    // Retry insert on transient network errors
+    let insertError = null;
+    for (let attempt = 0; attempt <= MAX_EMBED_RETRIES; attempt++) {
+      try {
+        const result = await supabase.from('knowledge_chunks').insert({
+          content: chunks[i],
+          source: filename,
+          category,
+          embedding,
+        });
+        insertError = result.error;
+        break;
+      } catch (networkErr) {
+        if (attempt === MAX_EMBED_RETRIES) throw networkErr;
+        const backoffMs = Math.min(5_000 * Math.pow(2, attempt), 30_000);
+        console.warn(`\n  [network/insert] ${(networkErr as Error).message}. Retrying in ${Math.round(backoffMs / 1000)}s...`);
+        await sleep(backoffMs);
+      }
+    }
 
     if (insertError) {
       throw new Error(`Failed to insert chunk ${i + 1} of ${filename}: ${insertError.message}`);
@@ -237,9 +281,23 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log(`Found ${files.length} file(s) to ingest.`);
+  // Resume support: skip files already present in knowledge_chunks
+  const { data: existingRows } = await supabase
+    .from('knowledge_chunks')
+    .select('source');
+  const alreadyIngested = new Set((existingRows ?? []).map((r: { source: string }) => r.source));
 
-  for (const file of files) {
+  const pending = files.filter((f) => !alreadyIngested.has(path.basename(f)));
+  const skipped = files.length - pending.length;
+
+  console.log(`Found ${files.length} file(s). Skipping ${skipped} already ingested. Processing ${pending.length} remaining.`);
+
+  if (pending.length === 0) {
+    console.log('All files already ingested.');
+    return;
+  }
+
+  for (const file of pending) {
     if (!fs.existsSync(file)) {
       console.error(`File not found: ${file}`);
       process.exit(1);
