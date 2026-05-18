@@ -5,7 +5,7 @@ import { Colors, Typography, Spacing, getPainColor } from '@/theme';
 
 interface PainScaleProps {
   value: number;
-  onChange: (value: number) => void;
+  onValueChange: (value: number) => void;
   label: string;
   minLabel?: string;
   maxLabel?: string;
@@ -15,7 +15,7 @@ interface PainScaleProps {
 
 export function PainScale({
   value,
-  onChange,
+  onValueChange,
   label,
   minLabel = '0  No pain',
   maxLabel = '10  Worst pain',
@@ -27,9 +27,9 @@ export function PainScale({
   const handleChange = useCallback(
     (v: number) => {
       // Round to nearest integer for discrete 0–10 stops
-      onChange(Math.round(v));
+      onValueChange(Math.round(v));
     },
-    [onChange]
+    [onValueChange]
   );
 
   return (
@@ -82,6 +82,7 @@ const styles = StyleSheet.create({
   value: {
     ...Typography.stat,
     fontSize: 40,
+    lineHeight: 48,
   } as TextStyle,
 
   slider: {
