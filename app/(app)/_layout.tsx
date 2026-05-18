@@ -17,8 +17,8 @@ export default function AppLayout() {
         tabBarActiveTintColor: Colors.primary,
         tabBarInactiveTintColor: Colors.text.disabled,
         tabBarStyle: {
-          backgroundColor: Colors.bg.surfaceRaised,
-          borderTopColor: Colors.border.default,
+          backgroundColor: Colors.bg.base,
+          borderTopColor: Colors.border.strong,
           borderTopWidth: 1,
           height: 56,
         },

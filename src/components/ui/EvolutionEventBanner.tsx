@@ -15,7 +15,7 @@ const config: Record<
   EventType,
   { color: string; Icon: React.ComponentType<{ size: number; color: string }> }
 > = {
-  progression: { color: Colors.semantic.success, Icon: ArrowCircleUp },
+  progression: { color: Colors.semantic.good, Icon: ArrowCircleUp },
   regression: { color: Colors.semantic.danger, Icon: ArrowCircleDown },
   hold: { color: Colors.semantic.warning, Icon: PauseCircle },
 };
@@ -50,7 +50,9 @@ const styles = StyleSheet.create({
   banner: {
     backgroundColor: Colors.bg.surfaceRaised,
     borderLeftWidth: 4,
-    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
+    borderRadius: Radius.none,
     padding: Spacing.space4,
     flexDirection: 'row',
     alignItems: 'flex-start',

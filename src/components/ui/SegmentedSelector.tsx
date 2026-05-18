@@ -74,18 +74,21 @@ const styles = StyleSheet.create({
     minWidth: 80,
     paddingVertical: Spacing.space2,
     paddingHorizontal: Spacing.space3,
-    borderRadius: Radius.md,
+    borderRadius: Radius.none,
     borderWidth: 1,
-    borderColor: Colors.border.default,
+    borderColor: Colors.border.faint,
     backgroundColor: Colors.bg.surface,
     alignItems: 'center',
     minHeight: 44,
     justifyContent: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
   } as ViewStyle,
 
   chipSelected: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: Colors.bg.surfaceRaised,
+    borderColor: Colors.border.faint,
+    borderBottomColor: Colors.primary,
   } as ViewStyle,
 
   chipLabel: {
@@ -95,6 +98,6 @@ const styles = StyleSheet.create({
   } as TextStyle,
 
   chipLabelSelected: {
-    color: Colors.text.onDark,
+    color: Colors.primary,
   } as TextStyle,
 });

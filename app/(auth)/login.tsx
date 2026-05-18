@@ -79,13 +79,23 @@ export default function LoginScreen() {
           />
 
           <TouchableOpacity
+            onPress={() => router.push('/(auth)/forgot-password')}
+            style={styles.switchRow}
+            accessibilityRole="button"
+          >
+            <Text style={styles.switchText}>
+              <Text style={styles.switchLink}>Forgot your password?</Text>
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             onPress={() => router.push('/(auth)/signup')}
             style={styles.switchRow}
             accessibilityRole="button"
           >
             <Text style={styles.switchText}>
               New here?{' '}
-              <Text style={styles.switchLink}>Create an account</Text>
+              <Text style={styles.switchLink}>Create your account</Text>
             </Text>
           </TouchableOpacity>
         </ScrollView>

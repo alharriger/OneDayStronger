@@ -80,7 +80,8 @@ const styles = StyleSheet.create({
   } as ViewStyle,
 
   value: {
-    ...Typography.h2,
+    ...Typography.stat,
+    fontSize: 40,
   } as TextStyle,
 
   slider: {

@@ -41,7 +41,7 @@ function SessionRow({ session }: SessionRowProps) {
   const statusLabel = SESSION_STATUS_LABEL[session.status] ?? session.status;
   const statusColor =
     session.status === 'completed'
-      ? Colors.semantic.success
+      ? Colors.semantic.good
       : session.status === 'skipped'
       ? Colors.text.disabled
       : session.status === 'rest_day'
@@ -164,7 +164,9 @@ const styles = StyleSheet.create({
   statCard: {
     flex: 1,
     backgroundColor: Colors.bg.surfaceRaised,
-    borderRadius: Radius.lg,
+    borderRadius: Radius.none,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
     padding: Spacing.space4,
     alignItems: 'center',
     gap: Spacing.space1,
@@ -188,7 +190,9 @@ const styles = StyleSheet.create({
   } as ViewStyle,
   sessionRow: {
     backgroundColor: Colors.bg.surfaceRaised,
-    borderRadius: Radius.md,
+    borderRadius: Radius.none,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
     padding: Spacing.space4,
     flexDirection: 'row',
     alignItems: 'center',

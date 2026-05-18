@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
-import { Colors, Radius, Spacing, Shadows } from '@/theme';
+import { Colors, Radius, Spacing } from '@/theme';
 
 export type CardVariant = 'standard' | 'phase' | 'event';
 export type EventType = 'progression' | 'regression' | 'hold';
@@ -13,7 +13,7 @@ interface CardProps {
 }
 
 const eventBorderColor: Record<EventType, string> = {
-  progression: Colors.semantic.success,
+  progression: Colors.semantic.good,
   regression: Colors.semantic.danger,
   hold: Colors.semantic.warning,
 };
@@ -39,10 +39,11 @@ export function Card({ children, variant = 'standard', eventType, style }: CardP
 const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.bg.surfaceRaised,
-    borderRadius: Radius.lg,
+    borderRadius: Radius.none,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
     flexDirection: 'row',
     overflow: 'hidden',
-    ...Shadows.sm,
   } as ViewStyle,
 
   leftBorder: {

@@ -33,7 +33,7 @@ function PhaseSection({ phase, isActive }: PhaseSectionProps) {
 
   const statusColor =
     phase.status === 'completed'
-      ? Colors.semantic.success
+      ? Colors.semantic.good
       : phase.status === 'active'
       ? Colors.primary
       : phase.status === 'regressed_from'
@@ -220,7 +220,9 @@ const styles = StyleSheet.create({
   } as TextStyle,
   phaseSection: {
     backgroundColor: Colors.bg.surfaceRaised,
-    borderRadius: Radius.lg,
+    borderRadius: Radius.none,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
     padding: Spacing.space4,
     marginBottom: Spacing.space4,
     gap: Spacing.space3,

@@ -280,8 +280,15 @@ Deno.serve(async (req: Request) => {
     }
     const systemPromptWithContext = SYSTEM_PROMPT + knowledgeContext;
 
-    // ── Call LLM (one retry on schema failure) ─────────────────────────────
-    let callResult = await callLLM(systemPromptWithContext, userMessage);
+    // ── Call LLM — retry once after 4s if both providers fail (clears Groq TPM window) ──
+    let callResult: Awaited<ReturnType<typeof callLLM>>;
+    try {
+      callResult = await callLLM(systemPromptWithContext, userMessage);
+    } catch (llmErr) {
+      console.warn('[revise-plan] LLM first attempt failed, retrying in 4s:', (llmErr as Error).message);
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+      callResult = await callLLM(systemPromptWithContext, userMessage);
+    }
     let parsed: GeneratePlanResponse;
     let validationError: string | null = null;
 

@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { Colors, Typography, Radius, Spacing } from '@/theme';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'destructive';
+export type ButtonVariant = 'hero' | 'primary' | 'secondary' | 'destructive';
 
 interface ButtonProps {
   label: string;
@@ -34,7 +34,7 @@ export function Button({
     <TouchableOpacity
       onPress={onPress}
       disabled={isDisabled}
-      activeOpacity={0.85}
+      activeOpacity={0.88}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: isDisabled, busy: loading }}
@@ -56,24 +56,33 @@ export function Button({
 
 const styles = StyleSheet.create({
   base: {
-    height: 52,
-    borderRadius: Radius.md,
+    height: 48,
+    borderRadius: Radius.none,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: Spacing.space5,
     minWidth: 44,
   } as ViewStyle,
 
+  // Hero — forward motion CTAs: Start workout, Begin session, Mark complete.
+  // Uses moss green (progression color). One per screen max.
+  hero: {
+    backgroundColor: Colors.moss,
+  } as ViewStyle,
+
+  // Primary — slate, the workhorse for everything else.
   primary: {
     backgroundColor: Colors.primary,
   } as ViewStyle,
 
+  // Secondary — ghost with hairline-faint outline. Never primary color.
   secondary: {
     backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderColor: Colors.primary,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
   } as ViewStyle,
 
+  // Destructive — brick red, safety contexts only.
   destructive: {
     backgroundColor: Colors.semantic.danger,
   } as ViewStyle,
@@ -81,10 +90,11 @@ const styles = StyleSheet.create({
   disabled: {
     backgroundColor: Colors.bg.surface,
     borderColor: Colors.bg.surface,
+    borderWidth: 0,
   } as ViewStyle,
 
   label: {
-    ...Typography.labelLarge,
+    ...Typography.buttonLabel,
   } as TextStyle,
 
   labelDisabled: {
@@ -93,7 +103,8 @@ const styles = StyleSheet.create({
 });
 
 const labelColor: Record<ButtonVariant, TextStyle> = {
-  primary: { color: Colors.text.onDark },
-  secondary: { color: Colors.primary },
+  hero:        { color: Colors.text.onDark },
+  primary:     { color: Colors.text.onDark },
+  secondary:   { color: Colors.text.secondary },
   destructive: { color: Colors.text.onDark },
 };

@@ -4,12 +4,15 @@ import { Slot, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import {
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-  useFonts,
-} from '@expo-google-fonts/inter';
+  Lato_400Regular,
+  Lato_700Bold,
+  Lato_900Black,
+} from '@expo-google-fonts/lato';
+import {
+  JetBrainsMono_400Regular,
+  JetBrainsMono_500Medium,
+} from '@expo-google-fonts/jetbrains-mono';
+import { useFonts } from 'expo-font';
 import { useAuth } from '@/hooks/useAuth';
 
 // NOTE: Do NOT call SplashScreen.preventAutoHideAsync() here.
@@ -19,10 +22,11 @@ import { useAuth } from '@/hooks/useAuth';
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
+    Lato_400Regular,
+    Lato_700Bold,
+    Lato_900Black,
+    JetBrainsMono_400Regular,
+    JetBrainsMono_500Medium,
   });
 
   const { user, loading: authLoading } = useAuth();
@@ -55,8 +59,8 @@ export default function RootLayout() {
       <StatusBar style="auto" />
       <Slot />
       {!isReady && (
-        <View style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: '#0F6E56', justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator color="#FFFFFF" size="large" />
+        <View style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: '#1F1A16', justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator color="#EFEAE2" size="large" />
         </View>
       )}
     </>
