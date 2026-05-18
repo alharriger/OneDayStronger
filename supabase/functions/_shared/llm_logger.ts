@@ -5,7 +5,7 @@
  * Failures are swallowed so that a logging error never blocks the main flow.
  */
 import { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { getModel } from './claude.ts';
+import { getModel } from './llm.ts';
 
 export type EdgeFunctionName =
   | 'generate-plan'

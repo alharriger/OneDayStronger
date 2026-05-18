@@ -1,8 +1,9 @@
 import { Platform, ViewStyle } from 'react-native';
 
 // =============================================================================
-// Elevation / shadow tokens
-// Flat and calm — only 3 levels above 0.
+// Elevation / shadow tokens — v2 (Athletic Naturalist)
+// Cards and rows carry NO shadows. Hairlines do that structural work.
+// Shadows appear only on overlays and the safety advisory modal.
 // =============================================================================
 
 type ShadowStyle = Pick<
@@ -20,7 +21,7 @@ function shadow(
     return { elevation: androidElevation };
   }
   return {
-    shadowColor: '#000',
+    shadowColor: '#1F1A16',  // ink shadow color (not pure black)
     shadowOffset: { width: 0, height: iosOffsetY },
     shadowOpacity: iosOpacity,
     shadowRadius: iosRadius,
@@ -28,14 +29,11 @@ function shadow(
 }
 
 export const Shadows = {
-  /** No shadow — flush to background */
+  /** No shadow — cards, rows, all content surfaces */
   none: shadow(0, 0, 0, 0),
 
-  /** Cards, input fields */
-  sm: shadow(0.06, 4, 1, 2),
-
   /** Bottom sheets, modals, floating action */
-  md: shadow(0.10, 12, 4, 6),
+  md: shadow(0.08, 12, 2, 6),
 
   /** Safety advisory overlay */
   lg: shadow(0.14, 20, 8, 12),

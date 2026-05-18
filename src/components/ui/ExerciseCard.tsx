@@ -116,7 +116,7 @@ const styles = StyleSheet.create({
 
   chip: {
     backgroundColor: Colors.bg.surface,
-    borderRadius: Radius.sm,
+    borderRadius: Radius.chip,
     paddingVertical: Spacing.space1,
     paddingHorizontal: Spacing.space2,
   } as ViewStyle,

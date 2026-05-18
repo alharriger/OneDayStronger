@@ -19,13 +19,18 @@ interface FormFieldProps extends Omit<TextInputProps, 'style'> {
 export function FormField({ label, error, containerStyle, ...inputProps }: FormFieldProps) {
   const [focused, setFocused] = useState(false);
 
+  // Focus: slate-light border + faint halo. Error: brick border + faint halo.
   const borderColor = error
     ? Colors.semantic.danger
     : focused
     ? Colors.border.focus
-    : Colors.border.default;
+    : Colors.border.faint;
 
-  const borderWidth = focused || error ? 1.5 : 1;
+  const shadowStyle = focused
+    ? { shadowColor: Colors.primaryLight, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.18, shadowRadius: 3 }
+    : error
+    ? { shadowColor: Colors.semantic.danger, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.12, shadowRadius: 3 }
+    : {};
 
   return (
     <View style={[styles.container, containerStyle]}>
@@ -35,9 +40,10 @@ export function FormField({ label, error, containerStyle, ...inputProps }: FormF
         style={[
           styles.input,
           inputProps.multiline && styles.multiline,
-          { borderColor, borderWidth },
+          { borderColor },
+          shadowStyle,
         ]}
-        placeholderTextColor={Colors.text.disabled}
+        placeholderTextColor={Colors.text.muted}
         onFocus={(e) => {
           setFocused(true);
           inputProps.onFocus?.(e);
@@ -60,16 +66,17 @@ const styles = StyleSheet.create({
   } as ViewStyle,
 
   label: {
-    ...Typography.label,
-    color: Colors.text.secondary,
+    ...Typography.eyebrow,
+    color: Colors.text.muted,
   } as TextStyle,
 
   input: {
-    backgroundColor: Colors.bg.surface,
-    borderRadius: Radius.md,
+    backgroundColor: Colors.bg.surface,   // sandstone fill
+    borderRadius: Radius.none,
+    borderWidth: 1,
     paddingHorizontal: Spacing.space3,
     paddingVertical: Spacing.space2,
-    height: 48,
+    height: 44,
     ...Typography.body,
     color: Colors.text.primary,
   } as TextStyle,
@@ -82,7 +89,10 @@ const styles = StyleSheet.create({
   } as TextStyle,
 
   error: {
-    ...Typography.bodySmall,
+    fontFamily: Typography.eyebrow.fontFamily,
+    fontSize: 10,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase' as const,
     color: Colors.semantic.danger,
   } as TextStyle,
 });

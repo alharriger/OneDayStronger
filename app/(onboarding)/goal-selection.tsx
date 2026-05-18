@@ -11,7 +11,7 @@ import {
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '@/components/ui';
-import { Colors, Typography, Spacing, Radius, Shadows } from '@/theme';
+import { Colors, Typography, Spacing, Radius } from '@/theme';
 import { useAuth } from '@/hooks/useAuth';
 import { updateProfile } from '@/services/profiles';
 import { updateOnboardingStep } from '@/services/profiles';
@@ -178,11 +178,10 @@ const styles = StyleSheet.create({
 
   card: {
     backgroundColor: Colors.bg.surfaceRaised,
-    borderRadius: Radius.lg,
-    borderWidth: 1.5,
-    borderColor: Colors.border.default,
+    borderRadius: Radius.none,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
     padding: Spacing.space5,
-    ...Shadows.sm,
   } as ViewStyle,
 
   cardActive: {

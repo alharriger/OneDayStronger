@@ -12,7 +12,8 @@
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
-import { callClaude } from '../_shared/claude.ts';
+import { callLLM } from '../_shared/llm.ts';
+import { retrieveKnowledge, formatKnowledgeContext } from '../_shared/rag.ts';
 import { logLlmCall } from '../_shared/llm_logger.ts';
 import { validateGeneratePlanResponse, type GeneratePlanResponse, type PlanPhase } from '../_shared/validation.ts';
 
@@ -308,8 +309,28 @@ Deno.serve(async (req: Request) => {
         latencyMs: 0, success: true,
       });
     } else {
-      // First attempt
-      let callResult = await callClaude(SYSTEM_PROMPT, userMessage);
+      // RAG: retrieve relevant clinical knowledge
+      let knowledgeContext = '';
+      try {
+        const chunks = await retrieveKnowledge(
+          supabase,
+          `PHT rehabilitation phases exercises progressions ${intake.irritability_level} irritability ${intake.mechanism}`,
+        );
+        knowledgeContext = formatKnowledgeContext(chunks);
+      } catch (ragErr) {
+        console.warn('[generate-plan] RAG retrieval failed:', (ragErr as Error).message);
+      }
+      const systemPromptWithContext = SYSTEM_PROMPT + knowledgeContext;
+
+      // First attempt — retry once after 4s if both providers fail (clears Groq TPM window)
+      let callResult: Awaited<ReturnType<typeof callLLM>>;
+      try {
+        callResult = await callLLM(systemPromptWithContext, userMessage);
+      } catch (llmErr) {
+        console.warn('[generate-plan] LLM first attempt failed, retrying in 4s:', (llmErr as Error).message);
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        callResult = await callLLM(systemPromptWithContext, userMessage);
+      }
       let validationError: string | null = null;
 
       try {
@@ -320,7 +341,7 @@ Deno.serve(async (req: Request) => {
 
         // One automatic retry with error appended
         const retryMessage = `${userMessage}\n\nYour previous response failed schema validation with this error: ${validationError}\nPlease fix the JSON and try again.`;
-        callResult = await callClaude(SYSTEM_PROMPT, retryMessage);
+        callResult = await callLLM(systemPromptWithContext, retryMessage);
 
         try {
           const json = JSON.parse(callResult.content);

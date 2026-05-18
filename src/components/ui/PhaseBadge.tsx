@@ -26,7 +26,7 @@ export function PhaseBadge({ phaseNumber, phaseName, isRegressed = false }: Phas
 const styles = StyleSheet.create({
   badge: {
     alignSelf: 'flex-start',
-    borderRadius: Radius.sm,
+    borderRadius: Radius.none,
     paddingVertical: Spacing.space1,
     paddingHorizontal: Spacing.space2,
   } as ViewStyle,

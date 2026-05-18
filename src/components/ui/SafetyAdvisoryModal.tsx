@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
 
   panel: {
     backgroundColor: Colors.bg.surfaceRaised,
-    borderRadius: Radius.xl,
+    borderRadius: Radius.none,
     width: '100%',
     maxHeight: '85%',
     overflow: 'hidden',
@@ -119,7 +119,9 @@ const styles = StyleSheet.create({
 
   disclaimerBox: {
     backgroundColor: Colors.bg.surface,
-    borderRadius: Radius.md,
+    borderRadius: Radius.none,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
     padding: Spacing.space3,
     width: '100%',
   } as ViewStyle,

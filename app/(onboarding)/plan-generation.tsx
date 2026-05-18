@@ -33,6 +33,7 @@ export default function PlanGenerationScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [messageIndex, setMessageIndex] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
+  const hasStarted = useRef(false);
 
   // Cycle through status messages while generating
   useEffect(() => {
@@ -58,9 +59,10 @@ export default function PlanGenerationScreen() {
     return () => clearInterval(interval);
   }, [status, fadeAnim]);
 
-  // Trigger plan generation on mount
+  // Trigger plan generation on mount — ref guard prevents StrictMode double-fire
   useEffect(() => {
-    if (!user) return;
+    if (!user || hasStarted.current) return;
+    hasStarted.current = true;
     generatePlan();
   }, [user]);
 

@@ -131,7 +131,9 @@ const styles = StyleSheet.create({
 
   disclaimer: {
     backgroundColor: Colors.bg.surface,
-    borderRadius: Radius.md,
+    borderRadius: Radius.none,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
     padding: Spacing.space4,
   } as ViewStyle,
 

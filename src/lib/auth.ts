@@ -73,6 +73,13 @@ export async function deleteAccount(): Promise<{ error: string | null }> {
   return { error: null };
 }
 
+// ─── Reset Password ───────────────────────────────────────────────────────────
+
+export async function resetPassword(email: string): Promise<{ error: string | null }> {
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+  return { error: error ? error.message : null };
+}
+
 // ─── Auth State Change ────────────────────────────────────────────────────────
 
 export function onAuthStateChange(
