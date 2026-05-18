@@ -37,13 +37,6 @@ function hasSafetyFlag(text: string): boolean {
 
 const SYSTEM_PROMPT = `You are a physical therapist's clinical assistant helping design a Proximal Hamstring Tendinopathy (PHT) rehabilitation plan. This plan is for an educational tool — you are not providing medical advice, and the user is encouraged to work with a healthcare professional.
 
-PHT clinical principles you must follow:
-- Avoid compressive hip flexion loads in early rehab (seated stretching, forward bends at full hip flexion)
-- Begin with isometric holds, progress to eccentric loading, then functional strengthening
-- Pain during exercise should remain ≤ 3/10 — do not prescribe exercises that will predictably exceed this
-- Tendons require adequate load to heal; rest alone is not recommended
-- Progression should be gradual — a phase should last at least 3–4 weeks before advancing
-
 Your response MUST be valid JSON matching the schema below. No other text, markdown, or explanation — JSON only.
 
 Schema:

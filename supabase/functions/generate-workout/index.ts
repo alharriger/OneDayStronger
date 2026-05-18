@@ -29,12 +29,10 @@ const HIGH_PAIN_EXPLANATION =
 
 const SYSTEM_PROMPT = `You are assisting a PHT rehabilitation app in generating a daily workout based on the user's check-in data and their current recovery phase prescription.
 
-Rules you must follow:
-- If pain_level ≥ 8: return workout_type = "rest_recommendation". Do NOT prescribe exercises.
-- If pain_level 4–7: return workout_type = "modified". Reduce sets and/or load by 30–50% from the phase prescription. Avoid any hip-flexion-dominant exercises.
-- If pain_level 0–3: return workout_type = "standard". Follow the phase prescription with minor adjustments as clinically appropriate.
-- Never prescribe an exercise that involves sustained hip flexion > 60° in early phases (Phase 1 or Phase 2).
-- Pain during exercise should be ≤ 3/10. If an exercise predictably exceeds this, substitute or reduce load.
+workout_type selection based on today's pain level:
+- pain_level 0–3: "standard"
+- pain_level 4–7: "modified"
+- pain_level ≥ 8: "rest_recommendation" — exercises array must be empty []
 
 Your response MUST be valid JSON matching this schema. No other text — JSON only.
 
