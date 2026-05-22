@@ -22,14 +22,19 @@ export function useOnboardingGuard() {
         .from('profiles')
         .select('onboarding_step')
         .eq('user_id', user!.id)
-        .single();
+        .maybeSingle();
 
       if (error) {
+        if (error.code === 'PGRST116') {
+          // No profile row — treat as new user and start onboarding
+          router.replace('/(onboarding)/welcome');
+          return;
+        }
         console.error('[useOnboardingGuard] profile query error:', error.code, error.message);
         return;
       }
       if (!data) {
-        console.warn('[useOnboardingGuard] no profile found for user:', user!.id);
+        router.replace('/(onboarding)/welcome');
         return;
       }
       console.log('[useOnboardingGuard] onboarding_step:', data.onboarding_step);

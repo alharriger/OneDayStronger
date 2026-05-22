@@ -5,6 +5,10 @@
  * meaningfully (pain baseline shifts ≥ 2 points). Generates a revised plan
  * for the remaining phases and supersedes the old plan.
  *
+ * RAG removed — clinical context comes from the condition module loaded from DB.
+ * Protocol version is preserved from the original plan so mid-journey users
+ * stay on the protocol they started with until explicitly re-assessed.
+ *
  * Body: {
  *   injuryStatus: {
  *     pain_level_baseline: number;
@@ -16,98 +20,112 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 import { callLLM } from '../_shared/llm.ts';
-import { retrieveKnowledge, formatKnowledgeContext } from '../_shared/rag.ts';
 import { logLlmCall } from '../_shared/llm_logger.ts';
-import { validateGeneratePlanResponse, type GeneratePlanResponse, type PlanPhase } from '../_shared/validation.ts';
+import {
+  validateGeneratePlanResponse,
+  type GeneratePlanResponse,
+  type PlanPhase,
+} from '../_shared/validation.ts';
+import {
+  loadConditionModule,
+  buildExerciseNameSet,
+  renderTemplate,
+  type ConditionModule,
+} from '../_shared/conditionModule.ts';
+import { classifyIrritability } from '../_shared/irritability.ts';
 
-const PROMPT_VERSION = 'revise-plan-v1';
+const PROMPT_VERSION = 'revise-plan-v2';
 
-// ─── System prompt (shared with generate-plan) ────────────────────────────────
+// ─── Plan JSON schema (same as generate-plan) ─────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a physical therapist's clinical assistant helping design a Proximal Hamstring Tendinopathy (PHT) rehabilitation plan. This plan is for an educational tool — you are not providing medical advice, and the user is encouraged to work with a healthcare professional.
-
-Your response MUST be valid JSON matching the schema below. No other text, markdown, or explanation — JSON only.
-
-Schema:
-{
-  "plain_language_summary": "string — 2–4 sentences describing the overall plan in plain language. Address the user directly (use 'you'). Mention the number of phases and approximate total timeline.",
+const PLAN_SCHEMA = `{
+  "plain_language_summary": "string — 2–4 sentences describing the revised plan in plain language. Address the user directly. Acknowledge the change in their status.",
   "phases": [
     {
-      "phase_number": "integer starting at 1",
-      "name": "string — short phase name e.g. 'Pain Management & Isometrics'",
+      "phase_number": "integer — start from the user's current phase number",
+      "name": "string",
       "description": "string — clinical description of this phase's focus",
-      "plain_language_summary": "string — 2–3 sentences explaining this phase to the user in plain language",
-      "estimated_duration_weeks": "integer — realistic minimum weeks for this phase",
+      "plain_language_summary": "string — 2–3 sentences explaining this phase to the user",
+      "estimated_duration_weeks": "integer 1–26",
       "progression_criteria": {
-        "pain_threshold": "integer 0–4 — maximum average pain_level to progress",
-        "load_tolerance_pct": "integer 50–100 — minimum % of prescribed load achieved to progress",
-        "consistency_pct": "integer 60–100 — minimum session completion rate to progress",
-        "window_days": "integer — evaluation window in days (typically 10–21)"
+        "pain_threshold": "integer 0–4",
+        "load_tolerance_pct": "integer 50–100",
+        "consistency_pct": "integer 60–100",
+        "window_days": "integer 7–30"
       },
       "regression_criteria": {
-        "pain_consecutive_sessions": "integer 2–4 — consecutive sessions above pain threshold before regressing",
-        "missed_sessions_window": "integer — missed sessions within window_days before regressing"
+        "pain_consecutive_sessions": "integer 2–4",
+        "missed_sessions_window": "integer 1–10"
       },
       "exercises": [
         {
-          "name": "string — must match an exercise name in the library where possible",
+          "name": "string — must exactly match an id or name from the exercise_library above",
           "sets": "integer",
-          "reps": "string — e.g. '8–12' or '45s hold'",
-          "load_target": "string — e.g. 'bodyweight', 'light resistance band', '20% bodyweight'",
-          "tempo": "string — e.g. '3-1-3' (eccentric-pause-concentric) or 'controlled'",
+          "reps": "string",
+          "load_target": "string",
+          "tempo": "string",
           "rest_seconds": "integer",
-          "notes": "string — optional coaching cue or modification; empty string if none"
+          "notes": "string"
         }
       ]
     }
   ]
-}
-
-Generate 2–5 phases. Each phase must have 3–6 exercises.`;
+}`;
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
 
-function buildReviseUserMessage(params: {
-  intake: Record<string, unknown>;
-  originalSummary: string;
-  currentPhaseNumber: number;
-  totalPhases: number;
-  currentPhaseName: string;
-  completedPhaseNumbers: number[];
-  newStatus: { pain_level_baseline: number; current_symptoms: string; last_flare_date: string | null };
-}): string {
-  const {
-    intake, originalSummary, currentPhaseNumber, totalPhases,
-    currentPhaseName, completedPhaseNumbers, newStatus,
-  } = params;
+function buildSystemPrompt(
+  module: ConditionModule,
+  conditionId: string,
+  protocolVersion: string,
+  irritabilityLevel: 'high' | 'moderate' | 'low',
+  intake: Record<string, unknown>,
+  originalSummary: string,
+  currentPhaseNumber: number,
+  totalPhases: number,
+  currentPhaseName: string,
+  completedPhaseNumbers: number[],
+  newStatus: { pain_level_baseline: number; current_symptoms: string; last_flare_date: string | null },
+): string {
+  const irritabilityConfig = module.protocol.irritability_levels[irritabilityLevel];
+  const startingPhaseTemplate = module.protocol.phase_templates.find(
+    (pt) => pt.type === irritabilityConfig.starting_phase_type,
+  ) ?? module.protocol.phase_templates[0];
 
-  const completedStr = completedPhaseNumbers.length > 0
-    ? completedPhaseNumbers.join(', ')
-    : 'None';
+  const completedStr = completedPhaseNumbers.length > 0 ? completedPhaseNumbers.join(', ') : 'None';
 
-  return `A user's injury status has changed. Revise their rehabilitation plan accordingly.
+  const intakeSummary = [
+    `Age: ${intake.age ?? 'unknown'}`,
+    `Gender: ${intake.gender ?? 'unknown'}`,
+    `Injury onset: ${intake.injury_onset_date ?? 'unknown'}`,
+    `Mechanism: ${intake.mechanism ?? 'unknown'}`,
+    `Prior treatment: ${intake.prior_treatment ?? 'none reported'}`,
+    `Training background: ${intake.training_background ?? 'unknown'}`,
+    ``,
+    `Original plan summary: ${originalSummary}`,
+    `Current phase (${currentPhaseNumber} of ${totalPhases}): ${currentPhaseName}`,
+    `Completed phases: ${completedStr}`,
+    ``,
+    `Updated status — new pain baseline: ${newStatus.pain_level_baseline}/10`,
+    `Current symptoms: ${newStatus.current_symptoms || 'none reported'}`,
+    `Last flare: ${newStatus.last_flare_date ?? 'not reported'}`,
+    ``,
+    `INSTRUCTION: Generate revised phases starting from phase ${currentPhaseNumber}. Do not regenerate completed phases. Adjust parameters for the updated status.`,
+  ].join('\n');
 
-Original intake:
-  Age: ${intake.age ?? 'unknown'}
-  Gender: ${intake.gender ?? 'unknown'}
-  Injury onset date: ${intake.injury_onset_date ?? 'unknown'}
-  Mechanism: ${intake.mechanism ?? 'unknown'}
-  Prior treatment: ${intake.prior_treatment ?? 'none reported'}
-  Irritability level: ${intake.irritability_level ?? 'unknown'}
-  Training background: ${intake.training_background ?? 'unknown'}
-
-Original plan summary:
-${originalSummary}
-
-Current phase (${currentPhaseNumber} of ${totalPhases}): ${currentPhaseName}
-Completed phases: ${completedStr}
-
-Updated injury status:
-  New pain baseline: ${newStatus.pain_level_baseline}/10
-  Current symptoms: ${newStatus.current_symptoms || 'none reported'}
-  Last flare date: ${newStatus.last_flare_date ?? 'not reported'}
-
-Generate a revised plan. If the user has already completed phases, do not regenerate those phases — start the revised plan from the current phase onward. Adjust phase parameters based on the new status. The first phase in your response corresponds to the user's current phase (phase ${currentPhaseNumber}).`;
+  return renderTemplate(module.plan_system_prompt_template, {
+    condition_name: module.protocol.meta.condition_name,
+    condition_id: conditionId,
+    protocol_version: protocolVersion,
+    protocol_json: JSON.stringify(module.protocol, null, 2),
+    irritability_level: irritabilityLevel,
+    irritability_description: irritabilityConfig.criteria_description,
+    starting_phase_number: String(startingPhaseTemplate.default_number),
+    starting_phase_type: startingPhaseTemplate.type,
+    intake_summary: intakeSummary,
+    phase_count: String(totalPhases - completedPhaseNumbers.length),
+    plan_schema: PLAN_SCHEMA,
+  });
 }
 
 // ─── DB helpers ───────────────────────────────────────────────────────────────
@@ -172,10 +190,9 @@ Deno.serve(async (req: Request) => {
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
   );
 
-  // ── Auth ───────────────────────────────────────────────────────────────────
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -185,7 +202,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const { data: { user }, error: authError } = await supabase.auth.getUser(
-    authHeader.replace('Bearer ', '')
+    authHeader.replace('Bearer ', ''),
   );
   if (authError || !user) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -194,7 +211,6 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // ── Parse body ─────────────────────────────────────────────────────────────
   let injuryStatus: { pain_level_baseline: number; current_symptoms: string; last_flare_date: string | null };
   try {
     const body = await req.json();
@@ -210,11 +226,10 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // ── Fetch existing plan + phases + intake ────────────────────────────────
     const [{ data: plan }, { data: intake }] = await Promise.all([
       supabase
         .from('recovery_plans')
-        .select('id, plain_language_summary')
+        .select('id, plain_language_summary, condition_id, protocol_version')
         .eq('user_id', user.id)
         .eq('status', 'active')
         .order('generated_at', { ascending: false })
@@ -236,66 +251,70 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { data: phases } = await supabase
-      .from('plan_phases')
-      .select('id, phase_number, name, status')
-      .eq('plan_id', plan.id)
-      .order('phase_number', { ascending: true });
+    const conditionId = (plan.condition_id as string) ?? 'pht';
+    const protocolVersion = (plan.protocol_version as string) ?? '1.0';
+
+    const [conditionModule, { data: phases }] = await Promise.all([
+      loadConditionModule(supabase, conditionId),
+      supabase
+        .from('plan_phases')
+        .select('id, phase_number, name, status')
+        .eq('plan_id', plan.id)
+        .order('phase_number', { ascending: true }),
+    ]);
+
+    const validExerciseNames = buildExerciseNameSet(conditionModule);
 
     const allPhases = phases ?? [];
     const activePhase = allPhases.find((p: { status: string }) => p.status === 'active') ?? allPhases[0];
-    const completedPhases = allPhases.filter(
-      (p: { status: string; phase_number: number }) => p.status === 'completed'
-    );
+    const completedPhases = allPhases.filter((p: { status: string }) => p.status === 'completed');
     const completedPhaseNumbers = completedPhases.map((p: { phase_number: number }) => p.phase_number);
 
-    // ── Build prompt ───────────────────────────────────────────────────────
-    const userMessage = buildReviseUserMessage({
-      intake: intake ?? {},
-      originalSummary: plan.plain_language_summary ?? 'No summary available.',
-      currentPhaseNumber: activePhase?.phase_number ?? 1,
-      totalPhases: allPhases.length,
-      currentPhaseName: activePhase?.name ?? 'Unknown',
+    // Classify irritability from updated status
+    const irritabilityLevel = classifyIrritability(
+      injuryStatus.pain_level_baseline,
+      false,
+      1,
+    );
+
+    const systemPrompt = buildSystemPrompt(
+      conditionModule,
+      conditionId,
+      protocolVersion,
+      irritabilityLevel,
+      intake ?? {},
+      plan.plain_language_summary ?? 'No summary available.',
+      activePhase?.phase_number ?? 1,
+      allPhases.length,
+      activePhase?.name ?? 'Unknown',
       completedPhaseNumbers,
-      newStatus: injuryStatus,
-    });
+      injuryStatus,
+    );
 
-    // RAG: retrieve relevant clinical knowledge
-    let knowledgeContext = '';
-    try {
-      const chunks = await retrieveKnowledge(
-        supabase,
-        `PHT plan revision pain baseline ${injuryStatus.pain_level_baseline} ${injuryStatus.current_symptoms}`,
-      );
-      knowledgeContext = formatKnowledgeContext(chunks);
-    } catch (ragErr) {
-      console.warn('[revise-plan] RAG retrieval failed:', (ragErr as Error).message);
-    }
-    const systemPromptWithContext = SYSTEM_PROMPT + knowledgeContext;
+    const userMessage = 'Generate the revised rehabilitation plan now.';
 
-    // ── Call LLM — retry once after 4s if both providers fail (clears Groq TPM window) ──
     let callResult: Awaited<ReturnType<typeof callLLM>>;
     try {
-      callResult = await callLLM(systemPromptWithContext, userMessage);
+      callResult = await callLLM(systemPrompt, userMessage);
     } catch (llmErr) {
       console.warn('[revise-plan] LLM first attempt failed, retrying in 4s:', (llmErr as Error).message);
       await new Promise((resolve) => setTimeout(resolve, 4000));
-      callResult = await callLLM(systemPromptWithContext, userMessage);
+      callResult = await callLLM(systemPrompt, userMessage);
     }
     let parsed: GeneratePlanResponse;
     let validationError: string | null = null;
 
     try {
       const json = JSON.parse(callResult.content);
-      parsed = validateGeneratePlanResponse(json);
+      parsed = validateGeneratePlanResponse(json, validExerciseNames);
     } catch (err) {
       validationError = (err as Error).message;
-      const retryMessage = `${userMessage}\n\nYour previous response failed schema validation: ${validationError}\nPlease fix the JSON and try again.`;
-      callResult = await callLLM(systemPromptWithContext, retryMessage);
+      const retryMessage = `Your previous response failed schema validation: ${validationError}\nPlease fix the JSON and try again.`;
+      callResult = await callLLM(systemPrompt, retryMessage);
 
       try {
         const json = JSON.parse(callResult.content);
-        parsed = validateGeneratePlanResponse(json);
+        parsed = validateGeneratePlanResponse(json, validExerciseNames);
         validationError = null;
       } catch (retryErr) {
         await logLlmCall({
@@ -311,7 +330,7 @@ Deno.serve(async (req: Request) => {
             error: 'We had trouble revising your plan. Your current plan is still active. Please try again.',
             retryable: true,
           }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         );
       }
     }
@@ -323,7 +342,6 @@ Deno.serve(async (req: Request) => {
       latencyMs: callResult.latencyMs, success: true,
     });
 
-    // ── Insert new plan ────────────────────────────────────────────────────
     const { data: profile } = await supabase
       .from('profiles')
       .select('rehab_goal')
@@ -338,6 +356,8 @@ Deno.serve(async (req: Request) => {
         rehab_goal: profile?.rehab_goal ?? null,
         plain_language_summary: parsed!.plain_language_summary,
         prompt_version: PROMPT_VERSION,
+        condition_id: conditionId,
+        protocol_version: protocolVersion,
       })
       .select('id')
       .single();
@@ -348,13 +368,9 @@ Deno.serve(async (req: Request) => {
 
     await insertRevisedPhases(supabase, newPlan.id, parsed!.phases);
 
-    // ── Supersede old plan (only after new plan is fully written) ──────────
-    await supabase
-      .from('recovery_plans')
-      .update({ status: 'superseded' })
-      .eq('id', plan.id);
+    // Supersede old plan only after new plan is fully written
+    await supabase.from('recovery_plans').update({ status: 'superseded' }).eq('id', plan.id);
 
-    // ── Record the revision event ──────────────────────────────────────────
     await supabase.from('plan_evolution_events').insert({
       user_id: user.id,
       plan_id: newPlan.id,
@@ -369,13 +385,13 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({ planId: newPlan.id, summary: parsed!.plain_language_summary }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   } catch (err) {
     console.error('revise-plan error:', err);
     return new Response(
       JSON.stringify({ error: 'An unexpected error occurred. Your current plan is still active.', retryable: true }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   }
 });

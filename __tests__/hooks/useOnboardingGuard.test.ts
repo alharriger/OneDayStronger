@@ -97,12 +97,12 @@ describe('useOnboardingGuard', () => {
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
-  it('does not redirect when the profile row is missing (406)', async () => {
+  it('redirects to welcome when the profile row is missing', async () => {
     mockedUseAuth.mockReturnValue({ user: { id: 'user-1' } });
     mockedFrom.mockReturnValue(createChain({ data: null, error: null }));
     renderHook(() => useOnboardingGuard());
     await waitFor(() => expect(mockedFrom).toHaveBeenCalled());
-    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockReplace).toHaveBeenCalledWith('/(onboarding)/welcome');
   });
 
   it('queries the profiles table filtered by the current user id', async () => {
