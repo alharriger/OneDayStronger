@@ -67,3 +67,117 @@ export async function updatePlanStatus(
 
   return { error: error ? error.message : null };
 }
+
+export interface JumpToPhaseParams {
+  planId: string;
+  userId: string;
+  /** The phase the user wants to start at. */
+  targetPhaseId: string;
+  targetPhaseNumber: number;
+  /** The phase currently marked active, if any. */
+  fromPhaseId: string | null;
+  fromPhaseNumber: number | null;
+}
+
+/**
+ * Lets a user jump to any phase — forward (progression) or backward (regression).
+ *
+ * Forward jump steps:
+ *  1. Marks all phases before the target as `completed`.
+ *  2. Marks the target phase as `active`.
+ *  3. Marks all phases after the target as `upcoming`.
+ *  4. Inserts a user-initiated event.
+ *  5. Updates today's session to the target phase and clears any generated workout.
+ *
+ * Backward jump does the same but logs the event as a `regression`.
+ */
+export async function jumpToPhase(
+  params: JumpToPhaseParams
+): Promise<{ error: string | null }> {
+  const { planId, userId, targetPhaseId, targetPhaseNumber, fromPhaseId, fromPhaseNumber } =
+    params;
+
+  // Guard: cannot jump to the phase you're already on.
+  if (fromPhaseNumber !== null && targetPhaseNumber === fromPhaseNumber) {
+    return { error: 'You are already on that phase.' };
+  }
+
+  const isProgression = fromPhaseNumber === null || targetPhaseNumber > fromPhaseNumber;
+  const eventType = isProgression ? 'progression' : 'regression';
+
+  // 1. Mark phases before target as completed.
+  const { error: priorError } = await supabase
+    .from('plan_phases')
+    .update({ status: 'completed', completed_at: new Date().toISOString() })
+    .eq('plan_id', planId)
+    .lt('phase_number', targetPhaseNumber);
+
+  if (priorError) return { error: priorError.message };
+
+  // 2. Mark the target phase active.
+  const { error: targetError } = await supabase
+    .from('plan_phases')
+    .update({ status: 'active', started_at: new Date().toISOString() })
+    .eq('id', targetPhaseId);
+
+  if (targetError) return { error: targetError.message };
+
+  // 3. Mark phases after target as upcoming (needed when jumping backward).
+  const { error: upcomingError } = await supabase
+    .from('plan_phases')
+    .update({ status: 'upcoming', started_at: null, completed_at: null })
+    .eq('plan_id', planId)
+    .gt('phase_number', targetPhaseNumber);
+
+  if (upcomingError) return { error: upcomingError.message };
+
+  // 4. Insert a user-initiated event.
+  const { error: eventError } = await supabase
+    .from('plan_evolution_events')
+    .insert({
+      user_id: userId,
+      plan_id: planId,
+      from_phase_id: fromPhaseId,
+      to_phase_id: targetPhaseId,
+      event_type: eventType,
+      triggered_by: 'user_initiated',
+      rationale: isProgression
+        ? 'You set your starting point based on prior physical therapy progress.'
+        : 'You moved back to an earlier phase to rebuild your foundation.',
+    });
+
+  if (eventError) return { error: eventError.message };
+
+  // 5. Update today's session to the target phase and clear any generated workout.
+  const today = new Date().toISOString().split('T')[0];
+  const { data: todaySession } = await supabase
+    .from('sessions')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('scheduled_date', today)
+    .limit(1)
+    .single();
+
+  if (todaySession) {
+    await supabase
+      .from('sessions')
+      .update({ plan_phase_id: targetPhaseId })
+      .eq('id', todaySession.id);
+
+    // Delete today's workout so it is regenerated for the new phase.
+    await supabase
+      .from('generated_workouts')
+      .delete()
+      .eq('session_id', todaySession.id);
+
+    // Delete today's check-in so the Today screen resets to the pain/soreness
+    // input step. The user should enter fresh readings for the new phase's first
+    // workout rather than having a workout silently generated with stale data.
+    await supabase
+      .from('check_ins')
+      .delete()
+      .eq('session_id', todaySession.id);
+  }
+
+  return { error: null };
+}

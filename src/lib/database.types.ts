@@ -192,6 +192,7 @@ export interface Database {
           id: string;
           phase_id: string;
           exercise_id: string | null;
+          name: string | null;
           prescribed_sets: number | null;
           prescribed_reps: string | null;
           load_target: string | null;
@@ -204,6 +205,7 @@ export interface Database {
           id?: string;
           phase_id: string;
           exercise_id?: string | null;
+          name?: string | null;
           prescribed_sets?: number | null;
           prescribed_reps?: string | null;
           load_target?: string | null;
@@ -213,6 +215,7 @@ export interface Database {
           notes?: string | null;
         };
         Update: {
+          name?: string | null;
           prescribed_sets?: number | null;
           prescribed_reps?: string | null;
           load_target?: string | null;

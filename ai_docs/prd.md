@@ -35,10 +35,10 @@ One Day Stronger is built for individuals rehabbing musculoskeletal injuries wit
 | Phase | Conditions | Notes |
 |---|---|---|
 | Phase 1 (current) | Proximal Hamstring Tendinopathy (PHT) | Foundation condition. All onboarding flows, plan logic, exercise libraries, and symptom monitoring scoped to PHT. |
-| Phase 2 | Gluteal tendinopathy · Achilles tendinopathy · Patellar tendinopathy | Share PHT's load management framework. Require new exercise libraries and condition-specific intake questions; no architectural change to the core loop. |
-| Phase 3 | Lateral elbow tendinopathy · Medial elbow tendinopathy · Plantar fasciiopathy | Additional intake and protocol work within the load management framework. |
-| Phase 4 | Patellofemoral pain · IT band syndrome | Overlapping runner population; different mechanism from tendinopathy. |
-| Phase 5 | Low back pain | Only when clinical credibility, outcomes data, and legal infrastructure are in place to operate at that scale. |
+| Phase 2 | Gluteal tendinopathy · Achilles tendinopathy · Patellar tendinopathy | 
+| Phase 3 | Lateral elbow tendinopathy · Medial elbow tendinopathy · Plantar fasciiopathy | 
+| Phase 4 | Patellofemoral pain · IT band syndrome | 
+| Phase 5 | Low back pain |
 
 **Out of scope:** Post-surgery recovery and illness recovery are explicitly out of scope for all current and planned phases. These user types require different clinical frameworks, regulatory considerations, and safety guardrails that are outside the current product scope.
 

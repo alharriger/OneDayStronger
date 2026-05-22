@@ -16,7 +16,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { updateOnboardingStep } from '@/services/profiles';
 
-type GenerationStatus = 'generating' | 'success' | 'error';
+type GenerationStatus = 'generating' | 'retrying' | 'success' | 'error';
 
 const STATUS_MESSAGES = [
   'Reading your intake...',
@@ -34,10 +34,15 @@ export default function PlanGenerationScreen() {
   const [messageIndex, setMessageIndex] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const hasStarted = useRef(false);
+  const isMounted = useRef(true);
 
-  // Cycle through status messages while generating
   useEffect(() => {
-    if (status !== 'generating') return;
+    return () => { isMounted.current = false; };
+  }, []);
+
+  // Cycle through status messages while generating or retrying
+  useEffect(() => {
+    if (status !== 'generating' && status !== 'retrying') return;
 
     const interval = setInterval(() => {
       Animated.sequence([
@@ -66,7 +71,8 @@ export default function PlanGenerationScreen() {
     generatePlan();
   }, [user]);
 
-  async function generatePlan() {
+  async function generatePlan(isAutoRetry = false) {
+    if (!isMounted.current) return;
     setStatus('generating');
     setErrorMessage(null);
 
@@ -75,14 +81,18 @@ export default function PlanGenerationScreen() {
         body: { user_id: user!.id },
       });
 
-      if (error) {
-        throw new Error(error.message);
+      if (error || !data?.planId) {
+        // First failure: auto-retry once after a short wait before surfacing the error
+        if (!isAutoRetry) {
+          if (!isMounted.current) return;
+          setStatus('retrying');
+          await new Promise((resolve) => setTimeout(resolve, 10000));
+          return generatePlan(true);
+        }
+        throw new Error(data?.error ?? (error as Error)?.message ?? 'Plan generation failed.');
       }
 
-      if (!data?.planId) {
-        throw new Error(data?.error ?? 'Plan generation failed.');
-      }
-
+      if (!isMounted.current) return;
       setStatus('success');
 
       // Brief pause so the user sees success state, then advance
@@ -90,6 +100,7 @@ export default function PlanGenerationScreen() {
         router.replace('/(onboarding)/plan-summary');
       }, 800);
     } catch (err) {
+      if (!isMounted.current) return;
       setStatus('error');
       setErrorMessage(
         err instanceof Error ? err.message : 'Something went wrong generating your plan.'
@@ -100,7 +111,7 @@ export default function PlanGenerationScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.content}>
-        {status === 'generating' && (
+        {(status === 'generating' || status === 'retrying') && (
           <View style={styles.center}>
             <ActivityIndicator
               size="large"
@@ -109,7 +120,9 @@ export default function PlanGenerationScreen() {
             />
             <Text style={styles.headline}>Building your plan</Text>
             <Animated.Text style={[styles.statusMessage, { opacity: fadeAnim }]}>
-              {STATUS_MESSAGES[messageIndex]}
+              {status === 'retrying'
+                ? 'Taking a little longer than usual...'
+                : STATUS_MESSAGES[messageIndex]}
             </Animated.Text>
             <Text style={styles.hint}>
               This usually takes about 15–30 seconds.

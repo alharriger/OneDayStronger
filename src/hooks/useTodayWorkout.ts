@@ -9,7 +9,8 @@
  * The hook drives all async state; the Today screen is a pure render
  * function over the returned state.
  */
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { getTodaySession, createSession } from '@/services/sessions';
@@ -17,6 +18,7 @@ import { submitCheckIn, getTodayCheckIn } from '@/services/checkins';
 import { getWorkoutForSession, getMostRecentWorkout } from '@/services/workouts';
 import { getPendingSafetyEvent } from '@/services/safetyEvents';
 import { getActivePhase } from '@/services/plans';
+import { onPlanChanged } from '@/lib/planEvents';
 import {
   cacheWorkout,
   getCachedWorkoutForSession,
@@ -82,6 +84,19 @@ export function useTodayWorkout(): TodayState {
   const [safetyDetails, setSafetyDetails] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isRetryable, setIsRetryable] = useState(false);
+
+  // Set to true when a plan change fires while the Today tab may not be focused.
+  // useFocusEffect reads and clears it on the next focus to guarantee a reinit.
+  const planChangedRef = useRef(false);
+
+  const resetState = useCallback(() => {
+    setPhase('loading');
+    setWorkout(null);
+    setSessionId(null);
+    setCheckInId(null);
+    setError(null);
+    setIsRetryable(false);
+  }, []);
 
   const initializeToday = useCallback(async () => {
     if (!user) return;
@@ -309,6 +324,29 @@ export function useTodayWorkout(): TodayState {
   useEffect(() => {
     initializeToday();
   }, [initializeToday]);
+
+  // When the user jumps to a different phase from the Plan screen:
+  // - Set the dirty flag immediately (handles the case where Today tab is not focused)
+  // - Also try to reinit right away (handles the case where it IS focused)
+  useEffect(() => {
+    return onPlanChanged(() => {
+      planChangedRef.current = true;
+      resetState();
+      initializeToday();
+    });
+  }, [initializeToday, resetState]);
+
+  // Belt-and-suspenders: re-initialize when the Today tab comes into focus if a
+  // plan change happened while the tab was in the background.
+  useFocusEffect(
+    useCallback(() => {
+      if (planChangedRef.current) {
+        planChangedRef.current = false;
+        resetState();
+        initializeToday();
+      }
+    }, [initializeToday, resetState])
+  );
 
   const handleSubmitCheckIn = useCallback(async (painLevel: number, sorenessLevel: number) => {
     if (!user || !sessionId) return;
