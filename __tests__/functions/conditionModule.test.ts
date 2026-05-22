@@ -9,12 +9,12 @@
 import {
   loadConditionModule,
   buildExerciseNameSet,
-  classifyIrritability,
-  resolveWorkoutModification,
   renderTemplate,
   type ConditionModule,
   type ConditionProtocol,
 } from '../../supabase/functions/_shared/conditionModule';
+import { classifyIrritability } from '../../supabase/functions/_shared/irritability';
+import { resolveWorkoutModification } from '../../supabase/functions/_shared/workoutModification';
 import { createChain } from '../helpers/supabaseMock';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────

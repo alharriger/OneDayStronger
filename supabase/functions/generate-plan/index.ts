@@ -22,10 +22,10 @@ import {
 import {
   loadConditionModule,
   buildExerciseNameSet,
-  classifyIrritability,
   renderTemplate,
   type ConditionModule,
 } from '../_shared/conditionModule.ts';
+import { classifyIrritability } from '../_shared/irritability.ts';
 
 const PROMPT_VERSION = 'generate-plan-v3';
 

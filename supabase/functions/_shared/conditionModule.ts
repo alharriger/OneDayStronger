@@ -128,38 +128,6 @@ export function buildExerciseNameSet(module: ConditionModule): Set<string> {
 }
 
 /**
- * Classify user irritability level deterministically from intake data.
- * Maps pain scores + ADL impact to high / moderate / low.
- *
- * Rules (PHT-aligned, driven by condition module criteria):
- *   high     — pain > 5 OR rest pain OR symptoms > 2h after light activity
- *   low      — pain ≤ 2 AND no ADL impact AND settles quickly
- *   moderate — everything else
- */
-export function classifyIrritability(
-  currentPain: number,
-  hasRestPain: boolean,
-  symptomsSettleHours: number,
-): 'high' | 'moderate' | 'low' {
-  if (currentPain > 5 || hasRestPain || symptomsSettleHours > 2) return 'high';
-  if (currentPain <= 2 && !hasRestPain && symptomsSettleHours <= 0.5) return 'low';
-  return 'moderate';
-}
-
-/**
- * Resolve workout modification type from today's pain level using the
- * condition module's workout_modification_rules.
- */
-export function resolveWorkoutModification(
-  painLevel: number,
-  rules: ConditionProtocol['workout_modification_rules'],
-): WorkoutModificationRule {
-  if (painLevel <= 3) return rules.pain_0_3;
-  if (painLevel <= 7) return rules.pain_4_7;
-  return rules.pain_8_10;
-}
-
-/**
  * Build a template string by substituting {{key}} placeholders with values.
  */
 export function renderTemplate(

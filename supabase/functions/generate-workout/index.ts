@@ -20,10 +20,10 @@ import { validateGenerateWorkoutResponse, type GenerateWorkoutResponse } from '.
 import { getFallbackWorkout } from './fallback.ts';
 import {
   loadConditionModule,
-  resolveWorkoutModification,
   renderTemplate,
   type ConditionModule,
 } from '../_shared/conditionModule.ts';
+import { resolveWorkoutModification } from '../_shared/workoutModification.ts';
 
 const PROMPT_VERSION = 'generate-workout-v2';
 
