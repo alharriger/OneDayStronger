@@ -2,7 +2,7 @@
  * generate-plan edge function
  *
  * Called after the user completes intake + goal selection.
- * Loads the PHT condition module, builds a templated system prompt,
+ * Loads the condition module for the user's condition, builds a templated system prompt,
  * classifies irritability deterministically, validates the LLM response
  * (including exercise library check), inserts the plan + phases + exercises,
  * then marks onboarding complete.
@@ -203,6 +203,17 @@ Deno.serve(async (req: Request) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
 
+  // condition_id defaults to 'pht' — condition selection UI is Phase 2 scope.
+  // Passed in the request body to allow future multi-condition support without
+  // a redeploy.
+  let conditionId = 'pht';
+  try {
+    const body = await req.clone().json();
+    if (typeof body?.conditionId === 'string' && body.conditionId.length > 0) {
+      conditionId = body.conditionId;
+    }
+  } catch { /* no body or non-JSON — use default */ }
+
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -229,7 +240,7 @@ Deno.serve(async (req: Request) => {
       { data: status },
       { data: profile },
     ] = await Promise.all([
-      loadConditionModule(supabase, 'pht'),
+      loadConditionModule(supabase, conditionId),
       supabase.from('injury_intake').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).single(),
       supabase.from('injury_status').select('*').eq('user_id', user.id).order('updated_at', { ascending: false }).limit(1).single(),
       supabase.from('profiles').select('rehab_goal').eq('user_id', user.id).single(),
