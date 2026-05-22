@@ -7,7 +7,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "test": "jest --watchAll",
-    "test:ci": "jest --ci"
+    "test:ci": "jest --ci",
+    "reset:test": "node scripts/reset-test-accounts.mjs"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
