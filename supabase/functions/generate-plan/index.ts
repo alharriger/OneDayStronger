@@ -143,52 +143,61 @@ async function insertPhases(
   planId: string,
   phases: PlanPhase[],
 ): Promise<string[]> {
-  const phaseIds: string[] = [];
-
-  for (const [i, phase] of phases.entries()) {
-    const { data: dbPhase, error: phaseError } = await supabase
-      .from('plan_phases')
-      .insert({
-        plan_id: planId,
-        phase_number: phase.phase_number,
-        name: phase.name,
-        description: phase.description,
-        plain_language_summary: phase.plain_language_summary,
-        estimated_duration_weeks: phase.estimated_duration_weeks,
-        status: i === 0 ? 'active' : 'upcoming',
-        progression_criteria: phase.progression_criteria,
-        regression_criteria: phase.regression_criteria,
-      })
-      .select('id')
-      .single();
-
-    if (phaseError || !dbPhase) throw new Error(`Failed to insert phase ${phase.phase_number}: ${phaseError?.message}`);
-    phaseIds.push(dbPhase.id as string);
-
-    for (const [ei, exercise] of phase.exercises.entries()) {
-      const { data: libExercise } = await supabase
-        .from('exercises')
+  // Insert all phases in parallel — they are independent of each other
+  const phaseRecords = await Promise.all(
+    phases.map(async (phase, i) => {
+      const { data: dbPhase, error: phaseError } = await supabase
+        .from('plan_phases')
+        .insert({
+          plan_id: planId,
+          phase_number: phase.phase_number,
+          name: phase.name,
+          description: phase.description,
+          plain_language_summary: phase.plain_language_summary,
+          estimated_duration_weeks: phase.estimated_duration_weeks,
+          status: i === 0 ? 'active' : 'upcoming',
+          progression_criteria: phase.progression_criteria,
+          regression_criteria: phase.regression_criteria,
+        })
         .select('id')
-        .ilike('name', exercise.name)
-        .maybeSingle();
+        .single();
 
-      const { error: exError } = await supabase.from('phase_exercises').insert({
-        phase_id: dbPhase.id,
-        exercise_id: libExercise?.id ?? null,
-        prescribed_sets: exercise.sets,
-        prescribed_reps: exercise.reps,
-        load_target: exercise.load_target,
-        tempo: exercise.tempo,
-        rest_seconds: exercise.rest_seconds,
-        order_index: ei,
-        notes: exercise.notes,
-      });
+      if (phaseError || !dbPhase) throw new Error(`Failed to insert phase ${phase.phase_number}: ${phaseError?.message}`);
+      return { phaseId: dbPhase.id as string, phase };
+    }),
+  );
 
-      if (exError) throw new Error(`Failed to insert phase_exercise: ${exError.message}`);
-    }
-  }
+  // For each phase: resolve exercise library IDs in parallel, then bulk insert all exercises
+  await Promise.all(
+    phaseRecords.map(async ({ phaseId, phase }) => {
+      const resolvedExercises = await Promise.all(
+        phase.exercises.map(async (exercise, ei) => {
+          const { data: libExercise } = await supabase
+            .from('exercises')
+            .select('id')
+            .ilike('name', exercise.name)
+            .maybeSingle();
 
-  return phaseIds;
+          return {
+            phase_id: phaseId,
+            exercise_id: libExercise?.id ?? null,
+            prescribed_sets: exercise.sets,
+            prescribed_reps: exercise.reps,
+            load_target: exercise.load_target,
+            tempo: exercise.tempo,
+            rest_seconds: exercise.rest_seconds,
+            order_index: ei,
+            notes: exercise.notes,
+          };
+        }),
+      );
+
+      const { error: exError } = await supabase.from('phase_exercises').insert(resolvedExercises);
+      if (exError) throw new Error(`Failed to insert phase_exercises for phase ${phaseId}: ${exError.message}`);
+    }),
+  );
+
+  return phaseRecords.map((r) => r.phaseId);
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
@@ -312,6 +321,8 @@ Deno.serve(async (req: Request) => {
               { name: 'Isometric Hamstring Bridge', sets: 3, reps: '45s hold', load_target: 'bodyweight', tempo: 'controlled', rest_seconds: 90, notes: 'Press heel into floor, hold. Stop if pain exceeds 3/10.' },
               { name: 'Wall Sit', sets: 3, reps: '30s hold', load_target: 'bodyweight', tempo: 'controlled', rest_seconds: 60, notes: 'Keep hips at 90°. Avoid deeper flexion early on.' },
               { name: 'Prone Hip Extension', sets: 3, reps: '12', load_target: 'bodyweight', tempo: '2-1-2', rest_seconds: 60, notes: 'Squeeze glute and hamstring at top. Minimal lumbar extension.' },
+              { name: 'Supine Hip Flexion Hold', sets: 3, reps: '30s hold', load_target: 'bodyweight', tempo: 'controlled', rest_seconds: 60, notes: 'Lie on back, lift knee to 90°, hold. Avoid breath holding.' },
+              { name: 'Clam Shell', sets: 3, reps: '15 per side', load_target: 'light resistance band', tempo: '2-1-2', rest_seconds: 45, notes: 'Keep pelvis stable. Progress band resistance when movement feels easy.' },
             ],
           },
           {
@@ -326,6 +337,8 @@ Deno.serve(async (req: Request) => {
               { name: 'Nordic Hamstring Curl', sets: 3, reps: '6', load_target: 'bodyweight', tempo: '4-0-1', rest_seconds: 120, notes: 'Lower slowly over 4 seconds. Use hands to return if needed.' },
               { name: 'Single-Leg Romanian Deadlift', sets: 3, reps: '8–10', load_target: 'light resistance band', tempo: '3-1-2', rest_seconds: 90, notes: 'Hinge at hip, keep spine neutral. Limit forward lean initially.' },
               { name: 'Isometric Hamstring Bridge', sets: 2, reps: '30s hold', load_target: 'bodyweight', tempo: 'controlled', rest_seconds: 60, notes: 'Used as warm-up before eccentric work.' },
+              { name: 'Seated Hip Hinge', sets: 3, reps: '10', load_target: 'bodyweight', tempo: '3-1-2', rest_seconds: 75, notes: 'Sit at edge of chair. Lean forward from hip, not waist. Feel stretch at hamstring attachment.' },
+              { name: 'Step-Up', sets: 3, reps: '10 per leg', load_target: 'bodyweight', tempo: '2-1-2', rest_seconds: 60, notes: 'Use a low step initially (20 cm). Drive through heel of the front foot.' },
             ],
           },
           {
@@ -340,6 +353,8 @@ Deno.serve(async (req: Request) => {
               { name: 'Deadlift', sets: 3, reps: '8', load_target: '30% bodyweight', tempo: '2-1-2', rest_seconds: 120, notes: 'Add load gradually. Stop if pain exceeds 3/10.' },
               { name: 'Single-Leg Romanian Deadlift', sets: 3, reps: '10–12', load_target: '20% bodyweight', tempo: '3-1-2', rest_seconds: 90, notes: 'Progress to dumbbell or kettlebell.' },
               { name: 'Walking Lunge', sets: 3, reps: '10 per leg', load_target: 'bodyweight', tempo: 'controlled', rest_seconds: 75, notes: 'Keep torso upright and avoid deep hip flexion if painful.' },
+              { name: 'Nordic Hamstring Curl', sets: 4, reps: '8', load_target: 'bodyweight', tempo: '4-0-1', rest_seconds: 120, notes: 'Progress from Phase 2. Aim for full range without hand support.' },
+              { name: 'Sprint Drill — A-March', sets: 3, reps: '20m', load_target: 'bodyweight', tempo: 'controlled', rest_seconds: 60, notes: 'High knee drive. Pain must stay below 3/10 throughout.' },
             ],
           },
         ],
@@ -353,13 +368,31 @@ Deno.serve(async (req: Request) => {
     } else {
       const userMessage = 'Generate the rehabilitation plan now.';
 
+      // First attempt — retry once after 8s if both providers fail (gives Groq RPM window time to clear)
       let callResult: Awaited<ReturnType<typeof callLLM>>;
       try {
         callResult = await callLLM(systemPrompt, userMessage);
       } catch (llmErr) {
-        console.warn('[generate-plan] LLM first attempt failed, retrying in 4s:', (llmErr as Error).message);
-        await new Promise((resolve) => setTimeout(resolve, 4000));
-        callResult = await callLLM(systemPrompt, userMessage);
+        console.warn('[generate-plan] LLM first attempt failed, retrying in 8s:', (llmErr as Error).message);
+        await new Promise((resolve) => setTimeout(resolve, 8000));
+        try {
+          callResult = await callLLM(systemPrompt, userMessage);
+        } catch (retryLlmErr) {
+          await logLlmCall({
+            supabase, userId: user.id, edgeFunction: 'generate-plan',
+            promptVersion: PROMPT_VERSION,
+            inputTokens: 0, outputTokens: 0,
+            latencyMs: 0, success: false,
+            errorMessage: `Both providers failed after retry: ${(retryLlmErr as Error).message}`,
+          });
+          return new Response(
+            JSON.stringify({
+              error: 'We had trouble reaching our AI service. Please try again in a moment.',
+              retryable: true,
+            }),
+            { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          );
+        }
       }
       let validationError: string | null = null;
 

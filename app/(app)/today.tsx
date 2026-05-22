@@ -168,9 +168,10 @@ export default function TodayScreen() {
     }
   }, [today.phase]);
 
-  // Load unseen evolution events once workout is ready
+  // Load unseen evolution events when workout is ready or when arriving at check-in
+  // after a user-initiated phase jump (so the banner shows before they re-enter pain levels).
   React.useEffect(() => {
-    if (!user || today.phase !== 'workout_ready') return;
+    if (!user || (today.phase !== 'workout_ready' && today.phase !== 'check_in')) return;
     getUnseenEvents(user.id).then((events) => {
       if (events.length > 0) {
         const latest = events[0];
@@ -285,9 +286,9 @@ export default function TodayScreen() {
             eventType={evolutionBanner.eventType}
             title={
               evolutionBanner.eventType === 'progression'
-                ? "You've advanced to the next phase!"
+                ? "Your plan has been updated — enter your levels to generate a new workout"
                 : evolutionBanner.eventType === 'regression'
-                ? "Plan adjusted based on your recent sessions"
+                ? "Your plan has been updated — enter your levels to generate a new workout"
                 : "Holding your current phase"
             }
             rationale={evolutionBanner.rationale}

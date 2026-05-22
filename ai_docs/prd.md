@@ -28,13 +28,21 @@ The application will:
 
 ### Target Users
 
-One Day Stronger is built for individuals navigating a recovery journey that requires structured, ongoing rehabilitation. The app is designed to serve three user types over time:
+One Day Stronger is built for individuals rehabbing musculoskeletal injuries without consistent access to in-person PT. The app expands to new injury conditions in phases — each phase adds condition-specific exercise libraries and intake questions without requiring architectural change to the core loop.
 
-- **Injury recovery** — individuals rehabbing a musculoskeletal injury without consistent access to in-person PT
-- **Post-surgery recovery** — individuals following a surgical procedure that requires a structured rehab protocol
-- **Illness recovery** — individuals managing a condition that requires physical rehabilitation over time
+**Injury expansion roadmap:**
 
-> **MVP focus:** The initial release will exclusively support users with Proximal Hamstring Tendinopathy (PHT). All onboarding flows, plan logic, exercise libraries, and symptom monitoring are scoped to PHT in the MVP.
+| Phase | Conditions | Notes |
+|---|---|---|
+| Phase 1 (current) | Proximal Hamstring Tendinopathy (PHT) | Foundation condition. All onboarding flows, plan logic, exercise libraries, and symptom monitoring scoped to PHT. |
+| Phase 2 | Gluteal tendinopathy · Achilles tendinopathy · Patellar tendinopathy | 
+| Phase 3 | Lateral elbow tendinopathy · Medial elbow tendinopathy · Plantar fasciiopathy | 
+| Phase 4 | Patellofemoral pain · IT band syndrome | 
+| Phase 5 | Low back pain |
+
+**Out of scope:** Post-surgery recovery and illness recovery are explicitly out of scope for all current and planned phases. These user types require different clinical frameworks, regulatory considerations, and safety guardrails that are outside the current product scope.
+
+> **Current build:** The active release supports PHT users only. Injury expansion begins when Phase 1 is clinically validated.
 
 ### Key User Journeys
 
@@ -268,9 +276,11 @@ Expected Outcome: The app acts within its scope as an educational tool and route
 | Project Phase | Scope |
 |--------------|-------|
 | MVP | PHT users only. Core loop: daily check-in → workout generation → logging → plan adaptation (progression and regression). Basic profile and injury history. Safety guardrails. |
-| V2 | Natural language plan input field. Backward/forward plan navigation. Plateau detection in plan evolution. Partial workout auto-save. Post-workout session summary card. Support for users with other diagnosed injuries. |
-| V3 | User is experiencing pain and can use the application to begin journaling symptoms without a formal diagnosis. |
-| Later | TBD |
+| V2 | Natural language plan input field. Backward/forward plan navigation. Plateau detection in plan evolution. Partial workout auto-save. Post-workout session summary card. Injury expansion Phase 2: Gluteal, Achilles, and Patellar tendinopathy. |
+| V3 | Injury expansion Phase 3: Lateral/medial elbow tendinopathy and plantar fasciiopathy. Symptom journaling for users without a formal diagnosis. |
+| V4 | Injury expansion Phase 4: Patellofemoral pain and IT band syndrome. |
+| V5 | Injury expansion Phase 5: Low back pain — only with clinical outcomes data and appropriate legal infrastructure. |
+| Out of scope | Post-surgery recovery. Illness recovery. |
 
 ### V2 Features
 
@@ -286,7 +296,7 @@ The following features are explicitly out of scope for the MVP but are planned f
 
 **Post-Workout Session Summary** — After logging a workout, users will see a summary card confirming what was captured and surfacing any notable signals (e.g., personal bests, pain flags). In MVP, the app confirms logging without a structured summary view.
 
-**Expanded Injury Support** — V2 will extend the app's onboarding flows, plan logic, and exercise library to support users with other diagnosed musculoskeletal injuries beyond PHT.
+**Expanded Injury Support (V2)** — V2 will extend onboarding flows, plan logic, and exercise libraries to support Gluteal tendinopathy, Achilles tendinopathy, and Patellar tendinopathy. These conditions share PHT's load management framework — the core loop, plan evolution engine, and irritability staging require no architectural change. New work is limited to condition-specific intake questions and exercise libraries.
 
 ## Success Metrics
 

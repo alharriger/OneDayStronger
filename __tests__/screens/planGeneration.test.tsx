@@ -49,10 +49,30 @@ const mockInvoke = supabase.functions.invoke as jest.Mock;
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
+/**
+ * Helper: renders the component with fake timers already active, advances
+ * past the 10-second auto-retry delay, and waits for the second (failing)
+ * invoke to settle — leaving the component in error state.
+ *
+ * The component retries once automatically after a 10s wait before surfacing
+ * the error state to the user. Tests that assert error UI must skip that delay.
+ */
+async function renderAndReachErrorState() {
+  render(<PlanGenerationScreen />);
+  // Skip the 10s auto-retry setTimeout; advanceTimersByTimeAsync also flushes
+  // pending microtasks so the async generatePlan chain resolves fully.
+  await jest.advanceTimersByTimeAsync(11000);
+}
+
 describe('PlanGenerationScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockReplace.mockReset();
+  });
+
+  afterEach(() => {
+    // Restore real timers after any test that enabled fake timers.
+    jest.useRealTimers();
   });
 
   it('shows the "Building your plan" heading while generating', () => {
@@ -79,69 +99,66 @@ describe('PlanGenerationScreen', () => {
     expect(mockInvoke).toHaveBeenCalledWith('generate-plan', expect.any(Object));
   });
 
+  // ── Error-state tests use fake timers to skip the 10s auto-retry delay ───────
+
   it('shows error state when the edge function returns an HTTP error', async () => {
+    jest.useFakeTimers();
     mockInvoke.mockResolvedValue({
       data: null,
       error: { message: 'Edge function returned a non-2xx status code' },
     });
-    render(<PlanGenerationScreen />);
-    await waitFor(() => {
-      expect(screen.getByText("Let's try that again")).toBeTruthy();
-    });
+    await renderAndReachErrorState();
+    expect(screen.getByText("Let's try that again")).toBeTruthy();
   });
 
   it('shows error state when planId is missing from the response', async () => {
+    jest.useFakeTimers();
     mockInvoke.mockResolvedValue({ data: {}, error: null });
-    render(<PlanGenerationScreen />);
-    await waitFor(() => {
-      expect(screen.getByText("Let's try that again")).toBeTruthy();
-    });
+    await renderAndReachErrorState();
+    expect(screen.getByText("Let's try that again")).toBeTruthy();
   });
 
   it('shows the error message from data.error when present', async () => {
+    jest.useFakeTimers();
     mockInvoke.mockResolvedValue({
       data: { error: 'Intake data not found. Please complete the intake form first.' },
       error: null,
     });
-    render(<PlanGenerationScreen />);
-    await waitFor(() => {
-      expect(screen.getByText('Intake data not found. Please complete the intake form first.')).toBeTruthy();
-    });
+    await renderAndReachErrorState();
+    expect(screen.getByText('Intake data not found. Please complete the intake form first.')).toBeTruthy();
   });
 
   it('shows fallback error message when no error detail is available', async () => {
+    jest.useFakeTimers();
+    // data is null → data?.error is undefined → throws 'Plan generation failed.'
     mockInvoke.mockResolvedValue({ data: null, error: null });
-    render(<PlanGenerationScreen />);
-    await waitFor(() => {
-      // data is null so data?.error is undefined → throws 'Plan generation failed.'
-      expect(screen.getByText('Plan generation failed.')).toBeTruthy();
-    });
+    await renderAndReachErrorState();
+    expect(screen.getByText('Plan generation failed.')).toBeTruthy();
   });
 
   it('shows a retry button in the error state', async () => {
+    jest.useFakeTimers();
     mockInvoke.mockResolvedValue({ data: null, error: { message: 'Timeout' } });
-    render(<PlanGenerationScreen />);
-    await waitFor(() => {
-      expect(screen.getByText('Try again')).toBeTruthy();
-    });
+    await renderAndReachErrorState();
+    expect(screen.getByText('Try again')).toBeTruthy();
   });
 
   it('re-invokes the edge function when the retry button is pressed', async () => {
-    // Render with a failing invoke so the error/retry state appears.
+    jest.useFakeTimers();
+    // Initial mock: fail on both auto-retry attempts (calls 1 and 2)
     mockInvoke.mockResolvedValue({ data: null, error: { message: 'Timeout' } });
 
-    render(<PlanGenerationScreen />);
-    await waitFor(() => expect(screen.getByText('Try again')).toBeTruthy(), { timeout: 3000 });
+    await renderAndReachErrorState();
+    expect(screen.getByText('Try again')).toBeTruthy();
 
-    // Change mock BEFORE pressing retry so the second call succeeds.
+    // Switch to success before pressing retry (call 3 succeeds immediately)
     mockInvoke.mockResolvedValue({ data: { planId: 'plan-retry' }, error: null });
 
-    // Press synchronously — component sets status back to 'generating' immediately,
-    // so we must get the element BEFORE the re-render, i.e. outside any act block.
-    fireEvent.press(screen.getByText('Try again'));
+    await act(async () => {
+      fireEvent.press(screen.getByText('Try again'));
+    });
 
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledTimes(2);
-    }, { timeout: 3000 });
+    // 3 total: initial attempt + auto-retry + manual retry
+    expect(mockInvoke).toHaveBeenCalledTimes(3);
   });
 });
