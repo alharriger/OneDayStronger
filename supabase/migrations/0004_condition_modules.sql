@@ -20,8 +20,9 @@ create table public.condition_modules (
   created_at                      timestamptz not null default now()
 );
 
--- No RLS: service role only, accessed exclusively from edge functions.
--- Public reads are intentionally blocked.
+-- RLS enabled with no policies — blocks anon/authenticated key access entirely.
+-- The service role key used by edge functions bypasses RLS, so no policy is needed there.
+alter table public.condition_modules enable row level security;
 
 comment on table public.condition_modules is
   'Versioned rehabilitation protocols. One row per condition. Edge functions load '
