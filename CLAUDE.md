@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **One Day Stronger** is a mobile rehab companion app for people rehabbing injuries without consistent access to physical therapy. The MVP supports Proximal Hamstring Tendinopathy (PHT) users. The core loop is: daily check-in → LLM-generated workout → workout logging → adaptive plan evolution.
 
-**Stack:** React Native (Expo) · Supabase (PostgreSQL + pgvector + Auth + Edge Functions) · Cloudflare R2 · Groq (`llama-3.3-70b-versatile`, primary) + Gemini 2.0 Flash (LLM fallback) + Gemini `text-embedding-004` (RAG embeddings)
+**Stack:** React Native (Expo) · Supabase (PostgreSQL + Auth + Edge Functions) · Cloudflare R2 · Groq (`llama-3.3-70b-versatile`, primary) + Gemini 2.0 Flash (LLM fallback)
 
 ## AI Docs
 
@@ -112,7 +112,6 @@ LLM infrastructure uses free tiers only:
 
 - **Groq** (`llama-3.3-70b-versatile`): free tier, 30 RPM / 14,400 RPD
 - **Gemini 2.0 Flash** (fallback): free tier, 15 RPM / 1M tokens/day
-- **Gemini `text-embedding-004`** (RAG): free tier, 1500 RPD
 
 If Groq rate limits are hit, the system automatically falls back to Gemini — no user action needed. Use `MOCK_LLM=true` in dev to avoid consuming free-tier quota. Do not add features that require high-frequency LLM calls (e.g., streaming per keystroke) without evaluating rate limit impact first.
 

@@ -30,10 +30,11 @@ src/
   theme/                   — Colors, Typography, Spacing, Radius, Shadows
 
 supabase/
-  migrations/              — 0001_initial_schema.sql, 0002_rls_policies.sql, 0003_pgvector_knowledge.sql
+  migrations/              — 0001_initial_schema.sql … 0006_seed_gt_condition_module.sql
   seed.sql                 — 18 PHT exercises
   functions/
-    _shared/               — llm.ts, rag.ts, llm_logger.ts, cors.ts, validation.ts
+    _shared/               — llm.ts, llm_logger.ts, cors.ts, validation.ts,
+                             conditionModule.ts, irritability.ts, workoutModification.ts
     generate-plan/         — onboarding plan generation (verify_jwt: false)
     generate-workout/      — daily workout generation + fallback.ts
     evolve-plan/           — automatic phase progression/regression
@@ -132,7 +133,7 @@ Edge functions are Deno TypeScript in `supabase/functions/`. Each function follo
 2. Parse request body
 3. Fetch any DB state needed for the prompt
 4. Perform safety checks (before calling LLM)
-5. Retrieve RAG context via `retrieveKnowledge()` + `formatKnowledgeContext()` from `_shared/rag.ts` (failures swallowed — degraded but functional)
+5. Load condition module via `loadConditionModule()` from `_shared/conditionModule.ts` — clinical protocol, exercise library, and irritability config for the user's condition
 6. Call `callLLM()` from `_shared/llm.ts` with `systemPromptWithContext`
 7. Validate response with `_shared/validation.ts` (one retry on failure)
 8. Log call with `logLlmCall()` from `_shared/llm_logger.ts`
@@ -226,7 +227,7 @@ Exception: hooks that call fire-and-forget edge functions (e.g., `useWorkoutLogg
 |---|---|---|
 | `APP_ENV` | Edge function env | `dev` \| `prod` |
 | `GROQ_API_KEY` | Supabase edge function secret | From console.groq.com — free tier, primary LLM |
-| `GEMINI_API_KEY` | Supabase edge function secret | From aistudio.google.com — LLM fallback + RAG embeddings |
+| `GEMINI_API_KEY` | Supabase edge function secret | From aistudio.google.com — LLM fallback (Gemini 2.0 Flash) |
 | `MOCK_LLM` | Supabase edge function secret | `true` \| unset — bypasses all LLM calls; returns hardcoded responses in `generate-plan`, `generate-workout`, `revise-plan` |
 | `SUPABASE_URL` | Supabase edge function env (auto) | — |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase edge function env (auto) | — |
