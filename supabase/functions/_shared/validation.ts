@@ -100,10 +100,12 @@ function validateRegressionCriteria(c: unknown): RegressionCriteria {
   return obj as unknown as RegressionCriteria;
 }
 
-function validatePlanExercise(e: unknown, index: number): PlanExercise {
+function validatePlanExercise(e: unknown, index: number, validNames?: Set<string>): PlanExercise {
   if (!e || typeof e !== 'object') throw new Error(`exercises[${index}] must be an object`);
   const obj = e as Record<string, unknown>;
   if (!isNonEmptyString(obj.name)) throw new Error(`exercises[${index}].name must be a non-empty string`);
+  if (validNames && !validNames.has(obj.name as string))
+    throw new Error(`exercises[${index}].name "${obj.name}" is not in the condition module exercise library`);
   if (!isInt(obj.sets) || obj.sets < 1 || obj.sets > 10) throw new Error(`exercises[${index}].sets must be int 1–10`);
   if (!isNonEmptyString(obj.reps)) throw new Error(`exercises[${index}].reps must be a non-empty string`);
   if (!isNonEmptyString(obj.load_target)) throw new Error(`exercises[${index}].load_target must be a non-empty string`);
@@ -114,7 +116,7 @@ function validatePlanExercise(e: unknown, index: number): PlanExercise {
   return obj as unknown as PlanExercise;
 }
 
-function validatePlanPhase(p: unknown, index: number): PlanPhase {
+function validatePlanPhase(p: unknown, index: number, validNames?: Set<string>): PlanPhase {
   if (!p || typeof p !== 'object') throw new Error(`phases[${index}] must be an object`);
   const obj = p as Record<string, unknown>;
   if (!isInt(obj.phase_number) || obj.phase_number < 1) throw new Error(`phases[${index}].phase_number must be a positive int`);
@@ -130,12 +132,12 @@ function validatePlanPhase(p: unknown, index: number): PlanPhase {
   if (!Array.isArray(obj.exercises)) throw new Error(`phases[${index}].exercises must be an array`);
   if (obj.exercises.length < 1 || obj.exercises.length > 8)
     throw new Error(`phases[${index}].exercises must have 1–8 items`);
-  const exercises = obj.exercises.map((e, ei) => validatePlanExercise(e, ei));
+  const exercises = obj.exercises.map((e, ei) => validatePlanExercise(e, ei, validNames));
 
   return { ...obj, progression_criteria: progressionCriteria, regression_criteria: regressionCriteria, exercises } as unknown as PlanPhase;
 }
 
-export function validateGeneratePlanResponse(raw: unknown): GeneratePlanResponse {
+export function validateGeneratePlanResponse(raw: unknown, validExerciseNames?: Set<string>): GeneratePlanResponse {
   if (!raw || typeof raw !== 'object') throw new Error('Response must be a JSON object');
   const obj = raw as Record<string, unknown>;
   if (!isNonEmptyString(obj.plain_language_summary))
@@ -143,7 +145,7 @@ export function validateGeneratePlanResponse(raw: unknown): GeneratePlanResponse
   if (!Array.isArray(obj.phases)) throw new Error('phases must be an array');
   if (obj.phases.length < 2 || obj.phases.length > 6)
     throw new Error(`phases must have 2–6 items, got ${obj.phases.length}`);
-  const phases = obj.phases.map((p, i) => validatePlanPhase(p, i));
+  const phases = obj.phases.map((p, i) => validatePlanPhase(p, i, validExerciseNames));
   return { plain_language_summary: obj.plain_language_summary, phases };
 }
 

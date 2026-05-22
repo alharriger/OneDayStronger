@@ -2,93 +2,112 @@
  * generate-plan edge function
  *
  * Called after the user completes intake + goal selection.
- * Builds a Claude prompt from intake data, validates the response,
- * inserts the plan + phases + phase_exercises into the database,
+ * Loads the PHT condition module, builds a templated system prompt,
+ * classifies irritability deterministically, validates the LLM response
+ * (including exercise library check), inserts the plan + phases + exercises,
  * then marks onboarding complete.
  *
  * One automatic retry on schema validation failure.
- * Safety check: if intake flags neurological/acute symptoms, inserts
- * a safety_event and returns the advisory alongside the plan.
+ * Safety check: keywords matched against condition module safety_keywords list.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 import { callLLM } from '../_shared/llm.ts';
-import { retrieveKnowledge, formatKnowledgeContext } from '../_shared/rag.ts';
 import { logLlmCall } from '../_shared/llm_logger.ts';
-import { validateGeneratePlanResponse, type GeneratePlanResponse, type PlanPhase } from '../_shared/validation.ts';
+import {
+  validateGeneratePlanResponse,
+  type GeneratePlanResponse,
+  type PlanPhase,
+} from '../_shared/validation.ts';
+import {
+  loadConditionModule,
+  buildExerciseNameSet,
+  classifyIrritability,
+  renderTemplate,
+  type ConditionModule,
+} from '../_shared/conditionModule.ts';
 
-const PROMPT_VERSION = 'generate-plan-v1';
+const PROMPT_VERSION = 'generate-plan-v3';
 
-// ─── Safety keyword detection ─────────────────────────────────────────────────
+// ─── Plan JSON schema (injected into system prompt template) ──────────────────
 
-const SAFETY_KEYWORDS = [
-  'neurological', 'numbness', 'tingling', 'radiating', 'nerve',
-  'paralysis', 'weakness', 'bladder', 'bowel', 'acute trauma',
-  'fracture', 'dislocation', 'severe swelling', 'unable to walk',
-  'post_surgery',
-];
-
-function hasSafetyFlag(text: string): boolean {
-  const lower = text.toLowerCase();
-  return SAFETY_KEYWORDS.some((k) => lower.includes(k));
-}
-
-// ─── Prompt builder ───────────────────────────────────────────────────────────
-
-const SYSTEM_PROMPT = `You are a physical therapist's clinical assistant helping design a Proximal Hamstring Tendinopathy (PHT) rehabilitation plan. This plan is for an educational tool — you are not providing medical advice, and the user is encouraged to work with a healthcare professional.
-
-Your response MUST be valid JSON matching the schema below. No other text, markdown, or explanation — JSON only.
-
-Schema:
-{
+const PLAN_SCHEMA = `{
   "plain_language_summary": "string — 2–4 sentences describing the overall plan in plain language. Address the user directly (use 'you'). Mention the number of phases and approximate total timeline.",
   "phases": [
     {
       "phase_number": "integer starting at 1",
-      "name": "string — short phase name e.g. 'Pain Management & Isometrics'",
+      "name": "string — short phase name",
       "description": "string — clinical description of this phase's focus",
       "plain_language_summary": "string — 2–3 sentences explaining this phase to the user in plain language",
       "estimated_duration_weeks": "integer — realistic minimum weeks for this phase",
       "progression_criteria": {
-        "pain_threshold": "integer 0–4 — maximum average pain_level to progress",
-        "load_tolerance_pct": "integer 50–100 — minimum % of prescribed load achieved to progress",
-        "consistency_pct": "integer 60–100 — minimum session completion rate to progress",
-        "window_days": "integer — evaluation window in days (typically 10–21)"
+        "pain_threshold": "integer 0–4",
+        "load_tolerance_pct": "integer 50–100",
+        "consistency_pct": "integer 60–100",
+        "window_days": "integer 7–30"
       },
       "regression_criteria": {
-        "pain_consecutive_sessions": "integer 2–4 — consecutive sessions above pain threshold before regressing",
-        "missed_sessions_window": "integer — missed sessions within window_days before regressing"
+        "pain_consecutive_sessions": "integer 2–4",
+        "missed_sessions_window": "integer 1–10"
       },
       "exercises": [
         {
-          "name": "string — must match an exercise name in the library where possible",
+          "name": "string — must exactly match an id or name from the exercise_library above",
           "sets": "integer",
           "reps": "string — e.g. '8–12' or '45s hold'",
-          "load_target": "string — e.g. 'bodyweight', 'light resistance band', '20% bodyweight'",
-          "tempo": "string — e.g. '3-1-3' (eccentric-pause-concentric) or 'controlled'",
+          "load_target": "string — e.g. 'bodyweight', 'light resistance band'",
+          "tempo": "string — e.g. '3-1-3' or 'controlled'",
           "rest_seconds": "integer",
-          "notes": "string — optional coaching cue or modification; empty string if none"
+          "notes": "string — coaching cue or empty string"
         }
       ]
     }
   ]
+}`;
+
+// ─── Safety keyword detection ─────────────────────────────────────────────────
+
+function hasSafetyFlag(text: string, keywords: string[]): boolean {
+  const lower = text.toLowerCase();
+  return keywords.some((k) => lower.includes(k));
 }
 
-Generate a plan with 3–5 phases. Each phase must have 3–6 exercises. Total estimated duration should be 12–24 weeks.`;
+// ─── Prompt builder ───────────────────────────────────────────────────────────
 
-function buildUserMessage(intake: Record<string, unknown>, status: Record<string, unknown>): string {
-  return `Generate a PHT rehabilitation plan for a user with the following profile:
+function buildSystemPrompt(
+  module: ConditionModule,
+  irritabilityLevel: 'high' | 'moderate' | 'low',
+  intake: Record<string, unknown>,
+  rehabGoal: string,
+): string {
+  const irritabilityConfig = module.protocol.irritability_levels[irritabilityLevel];
+  const startingPhaseTemplate = module.protocol.phase_templates.find(
+    (pt) => pt.type === irritabilityConfig.starting_phase_type,
+  ) ?? module.protocol.phase_templates[0];
 
-Age: ${intake.age ?? 'unknown'}
-Gender: ${intake.gender ?? 'unknown'}
-Rehab goal: ${intake.rehab_goal ?? 'unknown'}
-Injury onset date: ${intake.injury_onset_date ?? 'unknown'}
-Mechanism: ${intake.mechanism ?? 'unknown'}
-Prior treatment: ${intake.prior_treatment ?? 'none reported'}
-Irritability level: ${intake.irritability_level ?? 'unknown'}
-Training background: ${intake.training_background ?? 'unknown'}
-Current pain baseline (0–10): ${status.pain_level_baseline ?? 'unknown'}
-Current symptoms: ${status.current_symptoms ?? 'none reported'}`;
+  const intakeSummary = [
+    `Age: ${intake.age ?? 'unknown'}`,
+    `Gender: ${intake.gender ?? 'unknown'}`,
+    `Rehab goal: ${rehabGoal}`,
+    `Injury onset: ${intake.injury_onset_date ?? 'unknown'}`,
+    `Mechanism: ${intake.mechanism ?? 'unknown'}`,
+    `Prior treatment: ${intake.prior_treatment ?? 'none reported'}`,
+    `Training background: ${intake.training_background ?? 'unknown'}`,
+  ].join('\n');
+
+  return renderTemplate(module.plan_system_prompt_template, {
+    condition_name: module.protocol.meta.condition_name,
+    condition_id: module.condition_id,
+    protocol_version: module.version,
+    protocol_json: JSON.stringify(module.protocol, null, 2),
+    irritability_level: irritabilityLevel,
+    irritability_description: irritabilityConfig.criteria_description,
+    starting_phase_number: String(startingPhaseTemplate.default_number),
+    starting_phase_type: startingPhaseTemplate.type,
+    intake_summary: intakeSummary,
+    phase_count: String(module.protocol.phase_templates.length),
+    plan_schema: PLAN_SCHEMA,
+  });
 }
 
 // ─── DB helpers ───────────────────────────────────────────────────────────────
@@ -98,6 +117,8 @@ async function insertPlan(
   userId: string,
   planData: GeneratePlanResponse,
   rehabGoal: string,
+  conditionId: string,
+  protocolVersion: string,
 ): Promise<string> {
   const { data: plan, error } = await supabase
     .from('recovery_plans')
@@ -107,6 +128,8 @@ async function insertPlan(
       rehab_goal: rehabGoal,
       plain_language_summary: planData.plain_language_summary,
       prompt_version: PROMPT_VERSION,
+      condition_id: conditionId,
+      protocol_version: protocolVersion,
     })
     .select('id')
     .single();
@@ -142,9 +165,7 @@ async function insertPhases(
     if (phaseError || !dbPhase) throw new Error(`Failed to insert phase ${phase.phase_number}: ${phaseError?.message}`);
     phaseIds.push(dbPhase.id as string);
 
-    // Insert phase exercises
     for (const [ei, exercise] of phase.exercises.entries()) {
-      // Try to resolve exercise by name from the library
       const { data: libExercise } = await supabase
         .from('exercises')
         .select('id')
@@ -182,7 +203,6 @@ Deno.serve(async (req: Request) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
 
-  // Authenticate request
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -202,8 +222,14 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // Fetch intake and status
-    const [{ data: intake }, { data: status }, { data: profile }] = await Promise.all([
+    // Load condition module + user data in parallel
+    const [
+      conditionModule,
+      { data: intake },
+      { data: status },
+      { data: profile },
+    ] = await Promise.all([
+      loadConditionModule(supabase, 'pht'),
       supabase.from('injury_intake').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).single(),
       supabase.from('injury_status').select('*').eq('user_id', user.id).order('updated_at', { ascending: false }).limit(1).single(),
       supabase.from('profiles').select('rehab_goal').eq('user_id', user.id).single(),
@@ -216,9 +242,9 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Safety check — check symptoms for red flags before calling LLM
+    // Safety check — match against condition module keywords
     const symptomsText = `${status.current_symptoms ?? ''} ${intake.prior_treatment ?? ''} ${intake.mechanism ?? ''}`;
-    const safetyFlagged = hasSafetyFlag(symptomsText);
+    const safetyFlagged = hasSafetyFlag(symptomsText, conditionModule.protocol.safety_keywords);
     let safetyEventId: string | null = null;
 
     if (safetyFlagged) {
@@ -236,10 +262,23 @@ Deno.serve(async (req: Request) => {
       safetyEventId = safetyEvent?.id ?? null;
     }
 
-    const userMessage = buildUserMessage(
-      { ...intake, rehab_goal: profile.rehab_goal },
-      status,
+    // Classify irritability deterministically from intake data
+    const irritabilityLevel: 'high' | 'moderate' | 'low' =
+      (intake.irritability_level as 'high' | 'moderate' | 'low') ??
+      classifyIrritability(
+        status.pain_level_baseline as number ?? 5,
+        false,
+        1,
+      );
+
+    const systemPrompt = buildSystemPrompt(
+      conditionModule,
+      irritabilityLevel,
+      intake,
+      profile.rehab_goal ?? '',
     );
+
+    const validExerciseNames = buildExerciseNameSet(conditionModule);
 
     const isMock = Deno.env.get('MOCK_LLM') === 'true';
     let parsed: GeneratePlanResponse;
@@ -294,7 +333,6 @@ Deno.serve(async (req: Request) => {
           },
         ],
       };
-      // Log mock call
       await logLlmCall({
         supabase, userId: user.id, edgeFunction: 'generate-plan',
         promptVersion: `${PROMPT_VERSION}-mock`,
@@ -302,43 +340,30 @@ Deno.serve(async (req: Request) => {
         latencyMs: 0, success: true,
       });
     } else {
-      // RAG: retrieve relevant clinical knowledge
-      let knowledgeContext = '';
-      try {
-        const chunks = await retrieveKnowledge(
-          supabase,
-          `PHT rehabilitation phases exercises progressions ${intake.irritability_level} irritability ${intake.mechanism}`,
-        );
-        knowledgeContext = formatKnowledgeContext(chunks);
-      } catch (ragErr) {
-        console.warn('[generate-plan] RAG retrieval failed:', (ragErr as Error).message);
-      }
-      const systemPromptWithContext = SYSTEM_PROMPT + knowledgeContext;
+      const userMessage = 'Generate the rehabilitation plan now.';
 
-      // First attempt — retry once after 4s if both providers fail (clears Groq TPM window)
       let callResult: Awaited<ReturnType<typeof callLLM>>;
       try {
-        callResult = await callLLM(systemPromptWithContext, userMessage);
+        callResult = await callLLM(systemPrompt, userMessage);
       } catch (llmErr) {
         console.warn('[generate-plan] LLM first attempt failed, retrying in 4s:', (llmErr as Error).message);
         await new Promise((resolve) => setTimeout(resolve, 4000));
-        callResult = await callLLM(systemPromptWithContext, userMessage);
+        callResult = await callLLM(systemPrompt, userMessage);
       }
       let validationError: string | null = null;
 
       try {
         const json = JSON.parse(callResult.content);
-        parsed = validateGeneratePlanResponse(json);
+        parsed = validateGeneratePlanResponse(json, validExerciseNames);
       } catch (err) {
         validationError = (err as Error).message;
 
-        // One automatic retry with error appended
-        const retryMessage = `${userMessage}\n\nYour previous response failed schema validation with this error: ${validationError}\nPlease fix the JSON and try again.`;
-        callResult = await callLLM(systemPromptWithContext, retryMessage);
+        const retryMessage = `Your previous response failed schema validation with this error: ${validationError}\nPlease fix the JSON and try again.`;
+        callResult = await callLLM(systemPrompt, retryMessage);
 
         try {
           const json = JSON.parse(callResult.content);
-          parsed = validateGeneratePlanResponse(json);
+          parsed = validateGeneratePlanResponse(json, validExerciseNames);
           validationError = null;
         } catch (retryErr) {
           await logLlmCall({
@@ -350,16 +375,12 @@ Deno.serve(async (req: Request) => {
           });
 
           return new Response(
-            JSON.stringify({
-              error: 'We had trouble generating your plan. Please try again.',
-              retryable: true,
-            }),
+            JSON.stringify({ error: 'We had trouble generating your plan. Please try again.', retryable: true }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
           );
         }
       }
 
-      // Log successful call
       await logLlmCall({
         supabase, userId: user.id, edgeFunction: 'generate-plan',
         promptVersion: PROMPT_VERSION,
@@ -368,17 +389,14 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Insert plan, phases, and exercises
-    const planId = await insertPlan(supabase, user.id, parsed!, profile.rehab_goal);
+    const planId = await insertPlan(
+      supabase, user.id, parsed!, profile.rehab_goal,
+      conditionModule.condition_id, conditionModule.version,
+    );
     await insertPhases(supabase, planId, parsed!.phases);
 
-    // Mark onboarding complete
-    await supabase
-      .from('profiles')
-      .update({ onboarding_step: 'complete' })
-      .eq('user_id', user.id);
+    await supabase.from('profiles').update({ onboarding_step: 'complete' }).eq('user_id', user.id);
 
-    // Create first session
     const today = new Date().toISOString().split('T')[0];
     const { data: firstPhase } = await supabase
       .from('plan_phases')
@@ -398,12 +416,7 @@ Deno.serve(async (req: Request) => {
     }
 
     return new Response(
-      JSON.stringify({
-        planId,
-        safetyFlagged,
-        safetyEventId,
-        summary: parsed!.plain_language_summary,
-      }),
+      JSON.stringify({ planId, safetyFlagged, safetyEventId, summary: parsed!.plain_language_summary }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   } catch (err) {
