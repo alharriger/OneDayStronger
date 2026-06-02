@@ -96,6 +96,32 @@ describe('TodayScreen — check_in phase', () => {
   });
 });
 
+describe('TodayScreen — workout_completed phase', () => {
+  beforeEach(() => {
+    mockUseTodayWorkout.mockReturnValue({
+      ...loadingState,
+      phase: 'workout_completed',
+      sessionId: 'session-1',
+      workout: {
+        workoutId: 'workout-1',
+        workout_type: 'standard',
+        plain_language_explanation: 'Good work today.',
+        exercises: [],
+      },
+    });
+  });
+
+  it('shows the completion card', () => {
+    render(<TodayScreen />);
+    expect(screen.getByText('Workout complete')).toBeTruthy();
+  });
+
+  it('does not show the Start workout button', () => {
+    render(<TodayScreen />);
+    expect(screen.queryByText('Start workout')).toBeNull();
+  });
+});
+
 describe('TodayScreen — error phase', () => {
   beforeEach(() => {
     mockUseTodayWorkout.mockReturnValue({

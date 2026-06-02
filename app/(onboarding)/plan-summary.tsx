@@ -161,9 +161,9 @@ const styles = StyleSheet.create({
   } as ViewStyle,
 
   phaseHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: Spacing.space1,
   } as ViewStyle,
 
   phaseDuration: {

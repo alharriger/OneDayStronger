@@ -82,6 +82,21 @@ function RestDayCard({ explanation }: RestDayCardProps) {
   );
 }
 
+// ─── Workout completed card ───────────────────────────────────────────────────
+
+interface WorkoutCompletedCardProps {
+  explanation: string;
+}
+
+function WorkoutCompletedCard({ explanation }: WorkoutCompletedCardProps) {
+  return (
+    <View style={styles.completedCard}>
+      <Text style={styles.completedTitle}>Workout complete</Text>
+      <Text style={styles.completedBody}>{explanation}</Text>
+    </View>
+  );
+}
+
 // ─── Workout display ──────────────────────────────────────────────────────────
 
 interface WorkoutDisplayProps {
@@ -170,15 +185,21 @@ export default function TodayScreen() {
 
   // Load unseen evolution events when workout is ready or when arriving at check-in
   // after a user-initiated phase jump (so the banner shows before they re-enter pain levels).
+  // Only show banner-eligible event types — 'plan_revised' and others are excluded.
+  const BANNER_EVENT_TYPES = ['progression', 'regression', 'hold'] as const;
+  type BannerEventType = typeof BANNER_EVENT_TYPES[number];
+
   React.useEffect(() => {
     if (!user || (today.phase !== 'workout_ready' && today.phase !== 'check_in')) return;
     getUnseenEvents(user.id).then((events) => {
-      if (events.length > 0) {
-        const latest = events[0];
+      const bannerEvent = events.find((e) =>
+        BANNER_EVENT_TYPES.includes(e.event_type as BannerEventType)
+      );
+      if (bannerEvent) {
         setEvolutionBanner({
-          eventType: latest.event_type as 'progression' | 'regression' | 'hold',
-          rationale: latest.rationale,
-          eventId: latest.id,
+          eventType: bannerEvent.event_type as BannerEventType,
+          rationale: bannerEvent.rationale,
+          eventId: bannerEvent.id,
         });
       }
     });
@@ -234,6 +255,16 @@ export default function TodayScreen() {
                 },
               });
             }}
+          />
+        );
+
+      case 'workout_completed':
+        return (
+          <WorkoutCompletedCard
+            explanation={
+              today.workout?.plain_language_explanation ??
+              'You completed your workout today. Great work!'
+            }
           />
         );
 
@@ -393,6 +424,26 @@ const styles = StyleSheet.create({
   } as TextStyle,
 
   restBody: {
+    ...Typography.body,
+    color: Colors.text.secondary,
+  } as TextStyle,
+
+  // Workout completed
+  completedCard: {
+    backgroundColor: Colors.bg.surfaceRaised,
+    borderRadius: 12,
+    padding: Spacing.space5,
+    gap: Spacing.space3,
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.semantic.good,
+  } as ViewStyle,
+
+  completedTitle: {
+    ...Typography.h3,
+    color: Colors.text.primary,
+  } as TextStyle,
+
+  completedBody: {
     ...Typography.body,
     color: Colors.text.secondary,
   } as TextStyle,

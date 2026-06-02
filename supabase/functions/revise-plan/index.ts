@@ -86,6 +86,7 @@ function buildSystemPrompt(
   currentPhaseName: string,
   completedPhaseNumbers: number[],
   newStatus: { pain_level_baseline: number; current_symptoms: string; last_flare_date: string | null },
+  schedulingContext: string,
 ): string {
   const irritabilityConfig = module.protocol.irritability_levels[irritabilityLevel];
   const startingPhaseTemplate = module.protocol.phase_templates.find(
@@ -125,16 +126,32 @@ function buildSystemPrompt(
     intake_summary: intakeSummary,
     phase_count: String(totalPhases - completedPhaseNumbers.length),
     plan_schema: PLAN_SCHEMA,
+    scheduling_context: schedulingContext,
   });
 }
 
 // ─── DB helpers ───────────────────────────────────────────────────────────────
 
+function buildExerciseDisplayNameMap(
+  library: Array<{ id: string; name: string }>,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const entry of library) {
+    map.set(entry.id, entry.name);
+    map.set(entry.name, entry.name);
+  }
+  return map;
+}
+
 async function insertRevisedPhases(
   supabase: ReturnType<typeof createClient>,
   planId: string,
   phases: PlanPhase[],
-): Promise<void> {
+  exerciseLibrary: Array<{ id: string; name: string }>,
+): Promise<string | null> {
+  const displayNames = buildExerciseDisplayNameMap(exerciseLibrary);
+  let firstActivePhaseId: string | null = null;
+
   for (const [i, phase] of phases.entries()) {
     const { data: dbPhase, error: phaseError } = await supabase
       .from('plan_phases')
@@ -157,26 +174,79 @@ async function insertRevisedPhases(
       throw new Error(`Failed to insert revised phase ${phase.phase_number}: ${phaseError?.message}`);
     }
 
-    for (const [ei, exercise] of phase.exercises.entries()) {
-      const { data: libExercise } = await supabase
-        .from('exercises')
-        .select('id')
-        .ilike('name', exercise.name)
-        .maybeSingle();
+    if (i === 0) firstActivePhaseId = dbPhase.id as string;
 
-      const { error: exError } = await supabase.from('phase_exercises').insert({
-        phase_id: dbPhase.id,
-        exercise_id: libExercise?.id ?? null,
-        prescribed_sets: exercise.sets,
-        prescribed_reps: exercise.reps,
-        load_target: exercise.load_target,
-        tempo: exercise.tempo,
-        rest_seconds: exercise.rest_seconds,
-        order_index: ei,
-        notes: exercise.notes,
-      });
+    const exerciseRows = phase.exercises.map((exercise, ei) => ({
+      phase_id: dbPhase.id,
+      exercise_id: null,
+      name: displayNames.get(exercise.name) ?? exercise.name,
+      prescribed_sets: exercise.sets,
+      prescribed_reps: exercise.reps,
+      load_target: exercise.load_target,
+      tempo: exercise.tempo,
+      rest_seconds: exercise.rest_seconds,
+      order_index: ei,
+      notes: exercise.notes,
+    }));
 
-      if (exError) throw new Error(`Failed to insert phase_exercise: ${exError.message}`);
+    if (exerciseRows.length > 0) {
+      const { error: exError } = await supabase.from('phase_exercises').insert(exerciseRows);
+      if (exError) throw new Error(`Failed to insert phase_exercises: ${exError.message}`);
+    }
+  }
+
+  return firstActivePhaseId;
+}
+
+async function copyCompletedPhases(
+  supabase: ReturnType<typeof createClient>,
+  newPlanId: string,
+  completedPhases: Array<Record<string, unknown>>,
+): Promise<void> {
+  for (const phase of completedPhases) {
+    const { data: newPhase, error: phaseError } = await supabase
+      .from('plan_phases')
+      .insert({
+        plan_id: newPlanId,
+        phase_number: phase.phase_number,
+        name: phase.name,
+        description: phase.description,
+        plain_language_summary: phase.plain_language_summary,
+        estimated_duration_weeks: phase.estimated_duration_weeks,
+        status: 'completed',
+        progression_criteria: phase.progression_criteria,
+        regression_criteria: phase.regression_criteria,
+        started_at: phase.started_at,
+        completed_at: phase.completed_at,
+      })
+      .select('id')
+      .single();
+
+    if (phaseError || !newPhase) {
+      throw new Error(`Failed to copy completed phase ${phase.phase_number}: ${phaseError?.message}`);
+    }
+
+    const { data: exercises } = await supabase
+      .from('phase_exercises')
+      .select('name, prescribed_sets, prescribed_reps, load_target, tempo, rest_seconds, order_index, notes')
+      .eq('phase_id', phase.id as string)
+      .order('order_index');
+
+    if (exercises && exercises.length > 0) {
+      const exerciseRows = exercises.map((e: Record<string, unknown>) => ({
+        phase_id: newPhase.id,
+        exercise_id: null,
+        name: e.name,
+        prescribed_sets: e.prescribed_sets,
+        prescribed_reps: e.prescribed_reps,
+        load_target: e.load_target,
+        tempo: e.tempo,
+        rest_seconds: e.rest_seconds,
+        order_index: e.order_index,
+        notes: e.notes,
+      }));
+      const { error: exError } = await supabase.from('phase_exercises').insert(exerciseRows);
+      if (exError) throw new Error(`Failed to copy exercises for completed phase ${phase.phase_number}: ${exError.message}`);
     }
   }
 }
@@ -258,7 +328,7 @@ Deno.serve(async (req: Request) => {
       loadConditionModule(supabase, conditionId),
       supabase
         .from('plan_phases')
-        .select('id, phase_number, name, status')
+        .select('id, phase_number, name, description, plain_language_summary, estimated_duration_weeks, status, progression_criteria, regression_criteria, started_at, completed_at')
         .eq('plan_id', plan.id)
         .order('phase_number', { ascending: true }),
     ]);
@@ -277,6 +347,15 @@ Deno.serve(async (req: Request) => {
       1,
     );
 
+    const schedulingContext = (() => {
+      const now = new Date();
+      const h = now.getHours();
+      const day = now.toLocaleDateString('en-US', { weekday: 'long' });
+      const date = now.toISOString().split('T')[0];
+      const time = h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
+      return `${day}, ${date} (${time})`;
+    })();
+
     const systemPrompt = buildSystemPrompt(
       conditionModule,
       conditionId,
@@ -289,58 +368,115 @@ Deno.serve(async (req: Request) => {
       activePhase?.name ?? 'Unknown',
       completedPhaseNumbers,
       injuryStatus,
+      schedulingContext,
     );
 
-    const userMessage = 'Generate the revised rehabilitation plan now.';
-
-    let callResult: Awaited<ReturnType<typeof callLLM>>;
-    try {
-      callResult = await callLLM(systemPrompt, userMessage);
-    } catch (llmErr) {
-      console.warn('[revise-plan] LLM first attempt failed, retrying in 4s:', (llmErr as Error).message);
-      await new Promise((resolve) => setTimeout(resolve, 4000));
-      callResult = await callLLM(systemPrompt, userMessage);
-    }
+    const isMock = Deno.env.get('MOCK_LLM') === 'true';
     let parsed: GeneratePlanResponse;
-    let validationError: string | null = null;
 
-    try {
-      const json = JSON.parse(callResult.content);
-      parsed = validateGeneratePlanResponse(json, validExerciseNames);
-    } catch (err) {
-      validationError = (err as Error).message;
-      const retryMessage = `Your previous response failed schema validation: ${validationError}\nPlease fix the JSON and try again.`;
-      callResult = await callLLM(systemPrompt, retryMessage);
+    if (isMock) {
+      console.log('[revise-plan] MOCK_LLM=true — returning mock revised plan');
+      // Build a mock response using the current active phase so the flow completes
+      const upcomingPhases = allPhases.filter((p: { status: string }) => p.status === 'active' || p.status === 'upcoming');
+      parsed = {
+        plain_language_summary: `[Mock revision] Your plan has been updated to reflect your new pain baseline of ${injuryStatus.pain_level_baseline}/10. Continuing from Phase ${activePhase?.phase_number ?? 1}.`,
+        phases: upcomingPhases.map((p: Record<string, unknown>, i: number) => ({
+          phase_number: (p.phase_number as number),
+          name: p.name as string,
+          description: (p.description as string) ?? '',
+          plain_language_summary: (p.plain_language_summary as string) ?? '',
+          estimated_duration_weeks: (p.estimated_duration_weeks as number) ?? 4,
+          progression_criteria: (p.progression_criteria as GeneratePlanResponse['phases'][0]['progression_criteria']) ?? { pain_threshold: 3, load_tolerance_pct: 80, consistency_pct: 70, window_days: 14 },
+          regression_criteria: (p.regression_criteria as GeneratePlanResponse['phases'][0]['regression_criteria']) ?? { pain_consecutive_sessions: 2, missed_sessions_window: 4 },
+          exercises: [],
+        })),
+      };
+      if (parsed.phases.length === 0) {
+        parsed.phases = [{
+          phase_number: activePhase?.phase_number ?? 1,
+          name: activePhase?.name ?? 'Current Phase',
+          description: 'Mock revised phase',
+          plain_language_summary: 'Mock revised phase for development.',
+          estimated_duration_weeks: 4,
+          progression_criteria: { pain_threshold: 3, load_tolerance_pct: 80, consistency_pct: 70, window_days: 14 },
+          regression_criteria: { pain_consecutive_sessions: 2, missed_sessions_window: 4 },
+          exercises: [],
+        }];
+      }
+      await logLlmCall({
+        supabase, userId: user.id, edgeFunction: 'revise-plan',
+        promptVersion: `${PROMPT_VERSION}-mock`,
+        inputTokens: 0, outputTokens: 0, latencyMs: 0, success: true,
+      });
+    } else {
+
+      const userMessage = 'Generate the revised rehabilitation plan now.';
+
+      let callResult: Awaited<ReturnType<typeof callLLM>>;
+      try {
+        callResult = await callLLM(systemPrompt, userMessage);
+      } catch (llmErr) {
+        console.warn('[revise-plan] LLM first attempt failed, retrying in 4s:', (llmErr as Error).message);
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        try {
+          callResult = await callLLM(systemPrompt, userMessage);
+        } catch (retryErr) {
+          await logLlmCall({
+            supabase, userId: user.id, edgeFunction: 'revise-plan',
+            promptVersion: PROMPT_VERSION,
+            inputTokens: 0, outputTokens: 0, latencyMs: 0,
+            success: false,
+            errorMessage: `Both LLM attempts failed. First: ${(llmErr as Error).message}. Retry: ${(retryErr as Error).message}`,
+          });
+          return new Response(
+            JSON.stringify({
+              error: 'We had trouble revising your plan. Your current plan is still active. Please try again.',
+              retryable: true,
+            }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          );
+        }
+      }
+      let validationError: string | null = null;
 
       try {
         const json = JSON.parse(callResult.content);
         parsed = validateGeneratePlanResponse(json, validExerciseNames);
-        validationError = null;
-      } catch (retryErr) {
-        await logLlmCall({
-          supabase, userId: user.id, edgeFunction: 'revise-plan',
-          promptVersion: PROMPT_VERSION,
-          inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
-          latencyMs: callResult.latencyMs, success: false,
-          errorMessage: (retryErr as Error).message,
-        });
+      } catch (err) {
+        validationError = (err as Error).message;
+        const retryMessage = `Your previous response failed schema validation: ${validationError}\nPlease fix the JSON and try again.`;
+        callResult = await callLLM(systemPrompt, retryMessage);
 
-        return new Response(
-          JSON.stringify({
-            error: 'We had trouble revising your plan. Your current plan is still active. Please try again.',
-            retryable: true,
-          }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
+        try {
+          const json = JSON.parse(callResult.content);
+          parsed = validateGeneratePlanResponse(json, validExerciseNames);
+          validationError = null;
+        } catch (retryErr) {
+          await logLlmCall({
+            supabase, userId: user.id, edgeFunction: 'revise-plan',
+            promptVersion: PROMPT_VERSION,
+            inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
+            latencyMs: callResult.latencyMs, success: false,
+            errorMessage: (retryErr as Error).message,
+          });
+
+          return new Response(
+            JSON.stringify({
+              error: 'We had trouble revising your plan. Your current plan is still active. Please try again.',
+              retryable: true,
+            }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          );
+        }
       }
-    }
 
-    await logLlmCall({
-      supabase, userId: user.id, edgeFunction: 'revise-plan',
-      promptVersion: PROMPT_VERSION,
-      inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
-      latencyMs: callResult.latencyMs, success: true,
-    });
+      await logLlmCall({
+        supabase, userId: user.id, edgeFunction: 'revise-plan',
+        promptVersion: PROMPT_VERSION,
+        inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
+        latencyMs: callResult.latencyMs, success: true,
+      });
+    } // end else (MOCK_LLM=false)
 
     const { data: profile } = await supabase
       .from('profiles')
@@ -366,10 +502,42 @@ Deno.serve(async (req: Request) => {
       throw new Error(`Failed to insert revised plan: ${planError?.message}`);
     }
 
-    await insertRevisedPhases(supabase, newPlan.id, parsed!.phases);
+    // Copy completed phases from old plan into new plan so history is preserved
+    if (completedPhases.length > 0) {
+      await copyCompletedPhases(supabase, newPlan.id, completedPhases as Array<Record<string, unknown>>);
+    }
+
+    const newActivePhaseId = await insertRevisedPhases(
+      supabase, newPlan.id, parsed!.phases, conditionModule.protocol.exercise_library,
+    );
 
     // Supersede old plan only after new plan is fully written
     await supabase.from('recovery_plans').update({ status: 'superseded' }).eq('id', plan.id);
+
+    // Update today's session to the new active phase and clear today's generated
+    // workout — the Today screen will auto-regenerate it using the existing check-in.
+    // The check-in is preserved so today's pain data informs the new workout.
+    if (newActivePhaseId) {
+      const today = new Date().toISOString().split('T')[0];
+      const { data: todaySession } = await supabase
+        .from('sessions')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('scheduled_date', today)
+        .limit(1)
+        .maybeSingle();
+
+      if (todaySession) {
+        await supabase
+          .from('sessions')
+          .update({ plan_phase_id: newActivePhaseId })
+          .eq('id', todaySession.id);
+        await supabase
+          .from('generated_workouts')
+          .delete()
+          .eq('session_id', todaySession.id);
+      }
+    }
 
     await supabase.from('plan_evolution_events').insert({
       user_id: user.id,

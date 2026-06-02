@@ -21,6 +21,7 @@ jest.mock('@/services/plans', () => ({
 
 jest.mock('@/lib/planEvents', () => ({
   notifyPlanChanged: jest.fn(),
+  onPlanChanged: jest.fn(() => jest.fn()),
 }));
 
 // phosphor-react-native icons used in plan.tsx
@@ -135,7 +136,7 @@ describe('PlanScreen — phase display', () => {
   });
 });
 
-// ─── "I'm already here" interaction ──────────────────────────────────────────
+// ─── "I'm here" interaction ──────────────────────────────────────────
 
 describe('PlanScreen — I\'m already here', () => {
   beforeEach(() => {
@@ -147,7 +148,7 @@ describe('PlanScreen — I\'m already here', () => {
     render(<PlanScreen />);
     await screen.findByText('Current phase');
     // Active phase is expanded by default — button must NOT appear there
-    expect(screen.queryByText("I'm already here")).toBeNull();
+    expect(screen.queryByText("I'm here")).toBeNull();
   });
 
   it('shows "I\'m already here" on an expanded upcoming phase', async () => {
@@ -159,7 +160,7 @@ describe('PlanScreen — I\'m already here', () => {
     fireEvent.press(expandBtn);
 
     await waitFor(() =>
-      expect(screen.getAllByText("I'm already here").length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText("I'm here").length).toBeGreaterThanOrEqual(1)
     );
   });
 
@@ -170,11 +171,11 @@ describe('PlanScreen — I\'m already here', () => {
     // Only the upcoming phase's button appears (active phase has no button)
     fireEvent.press(screen.getByLabelText(/Expand phase 2/i));
     await waitFor(() =>
-      expect(screen.getAllByText("I'm already here").length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText("I'm here").length).toBeGreaterThanOrEqual(1)
     );
 
-    // Press the first (and only) "I'm already here" — phase 2
-    fireEvent.press(screen.getAllByText("I'm already here")[0]);
+    // Press the first (and only) "I'm here" — phase 2
+    fireEvent.press(screen.getAllByText("I'm here")[0]);
 
     await waitFor(() =>
       expect(screen.getByText(/Start at Phase 2/i)).toBeTruthy()
@@ -186,8 +187,8 @@ describe('PlanScreen — I\'m already here', () => {
     await screen.findByText(/16-week/i);
 
     fireEvent.press(screen.getByLabelText(/Expand phase 2/i));
-    await waitFor(() => expect(screen.getAllByText("I'm already here").length).toBeGreaterThanOrEqual(1));
-    fireEvent.press(screen.getAllByText("I'm already here")[0]);
+    await waitFor(() => expect(screen.getAllByText("I'm here").length).toBeGreaterThanOrEqual(1));
+    fireEvent.press(screen.getAllByText("I'm here")[0]);
     await waitFor(() => screen.getByText(/Start at Phase 2/i));
 
     fireEvent.press(screen.getByText('Cancel'));
@@ -203,8 +204,8 @@ describe('PlanScreen — I\'m already here', () => {
     await screen.findByText(/16-week/i);
 
     fireEvent.press(screen.getByLabelText(/Expand phase 2/i));
-    await waitFor(() => expect(screen.getAllByText("I'm already here").length).toBeGreaterThanOrEqual(1));
-    fireEvent.press(screen.getAllByText("I'm already here")[0]);
+    await waitFor(() => expect(screen.getAllByText("I'm here").length).toBeGreaterThanOrEqual(1));
+    fireEvent.press(screen.getAllByText("I'm here")[0]);
     await waitFor(() => screen.getByText('Yes, start here'));
 
     fireEvent.press(screen.getByText('Yes, start here'));
@@ -226,8 +227,8 @@ describe('PlanScreen — I\'m already here', () => {
     await screen.findByText(/16-week/i);
 
     fireEvent.press(screen.getByLabelText(/Expand phase 2/i));
-    await waitFor(() => expect(screen.getAllByText("I'm already here").length).toBeGreaterThanOrEqual(1));
-    fireEvent.press(screen.getAllByText("I'm already here")[0]);
+    await waitFor(() => expect(screen.getAllByText("I'm here").length).toBeGreaterThanOrEqual(1));
+    fireEvent.press(screen.getAllByText("I'm here")[0]);
     await waitFor(() => screen.getByText('Yes, start here'));
     fireEvent.press(screen.getByText('Yes, start here'));
 
@@ -245,8 +246,8 @@ describe('PlanScreen — I\'m already here', () => {
     await screen.findByText(/16-week/i);
 
     fireEvent.press(screen.getByLabelText(/Expand phase 2/i));
-    await waitFor(() => expect(screen.getAllByText("I'm already here").length).toBeGreaterThanOrEqual(1));
-    fireEvent.press(screen.getAllByText("I'm already here")[0]);
+    await waitFor(() => expect(screen.getAllByText("I'm here").length).toBeGreaterThanOrEqual(1));
+    fireEvent.press(screen.getAllByText("I'm here")[0]);
     await waitFor(() => screen.getByText('Yes, start here'));
 
     await act(async () => {

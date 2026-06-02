@@ -339,7 +339,7 @@ function Step4({
 
         <PainScale
           value={data.pain_level_baseline}
-          onChange={(v) => onUpdate({ pain_level_baseline: v })}
+          onValueChange={(v) => onUpdate({ pain_level_baseline: v })}
           label="Pain at rest right now (0–10)"
         />
 

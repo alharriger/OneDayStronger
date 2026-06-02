@@ -61,6 +61,7 @@ function buildSystemPrompt(
   sorenessLevel: number,
   phaseExercises: Array<Record<string, unknown>>,
   recentCheckIns: Array<{ pain_level: number; checked_in_at: string }>,
+  schedulingContext: string,
 ): string {
   const modRule = resolveWorkoutModification(painLevel, module.protocol.workout_modification_rules);
 
@@ -82,6 +83,7 @@ function buildSystemPrompt(
     soreness_level: String(sorenessLevel),
     recent_checkins: recentStr,
     workout_schema: WORKOUT_SCHEMA,
+    scheduling_context: schedulingContext,
   }) + `\n\nworkout_type for this session: "${workoutType}" — use this value exactly in your response.`;
 }
 
@@ -117,7 +119,21 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json();
-    const { sessionId, checkInId } = body as { sessionId: string; checkInId: string };
+    const { sessionId, checkInId, isoDate, dayOfWeek, timeOfDay } = body as {
+      sessionId: string;
+      checkInId: string;
+      isoDate?: string;
+      dayOfWeek?: string;
+      timeOfDay?: string;
+    };
+
+    const schedulingContext = (() => {
+      const date = isoDate ?? new Date().toISOString().split('T')[0];
+      const day = dayOfWeek ?? new Date().toLocaleDateString('en-US', { weekday: 'long' });
+      const h = new Date().getHours();
+      const time = timeOfDay ?? (h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening');
+      return `${day}, ${date} (${time})`;
+    })();
 
     if (!sessionId || !checkInId) {
       return new Response(JSON.stringify({ error: 'sessionId and checkInId are required' }), {
@@ -206,7 +222,7 @@ Deno.serve(async (req: Request) => {
         .single(),
       supabase
         .from('phase_exercises')
-        .select('*, exercises(name)')
+        .select('*')
         .eq('phase_id', session.plan_phase_id)
         .order('order_index'),
       supabase
@@ -224,7 +240,7 @@ Deno.serve(async (req: Request) => {
     const conditionModule = await loadConditionModule(supabase, conditionId);
 
     const exercisesForPrompt = (phaseExercises ?? []).map((e: Record<string, unknown>) => ({
-      exercise_name: (e.exercises as Record<string, unknown>)?.name ?? 'Exercise',
+      exercise_name: (e.name as string) ?? 'Exercise',
       prescribed_sets: e.prescribed_sets,
       prescribed_reps: e.prescribed_reps,
       load_target: e.load_target,
@@ -241,6 +257,7 @@ Deno.serve(async (req: Request) => {
       sorenessLevel,
       exercisesForPrompt,
       (recentCheckIns ?? []) as Array<{ pain_level: number; checked_in_at: string }>,
+      schedulingContext,
     );
 
     const userMessage = 'Generate the workout for today.';

@@ -18,6 +18,7 @@ import { updateSession } from '@/services/sessions';
 import { createSafetyEvent } from '@/services/safetyEvents';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { enqueueWorkoutLog } from '@/lib/localDb';
+import { notifyPlanChanged } from '@/lib/planEvents';
 import type { Database } from '@/lib/database.types';
 
 type ExerciseLogInsert = Database['public']['Tables']['exercise_logs']['Insert'];
@@ -161,6 +162,9 @@ export function useWorkoutLogging({
 
     // Mark session completed
     await updateSession(sessionId, { status: 'completed' });
+
+    // Notify Today screen and Plan tab to re-initialize (session is now complete)
+    notifyPlanChanged();
 
     // Trigger plan evolution (fire and forget — failure is silent per spec)
     supabase.functions.invoke('evolve-plan', {

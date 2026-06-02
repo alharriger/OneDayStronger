@@ -34,6 +34,7 @@ export type TodayPhase =
   | 'check_in'
   | 'generating'
   | 'workout_ready'
+  | 'workout_completed'
   | 'rest_day'
   | 'safety_advisory'
   | 'error';
@@ -202,7 +203,11 @@ export function useTodayWorkout(): TodayState {
             is_fallback: 0,
             fallback_banner: null,
           }).catch(() => {});
-          setPhase(existingWorkout.workout_type === 'rest_recommendation' ? 'rest_day' : 'workout_ready');
+          if (session.status === 'completed') {
+            setPhase('workout_completed');
+          } else {
+            setPhase(existingWorkout.workout_type === 'rest_recommendation' ? 'rest_day' : 'workout_ready');
+          }
           return;
         }
 
@@ -219,7 +224,11 @@ export function useTodayWorkout(): TodayState {
             isFallback: cachedForToday.is_fallback === 1,
             fallbackBanner: cachedForToday.fallback_banner ?? undefined,
           });
-          setPhase(cachedForToday.workout_type === 'rest_recommendation' ? 'rest_day' : 'workout_ready');
+          if (session.status === 'completed') {
+            setPhase('workout_completed');
+          } else {
+            setPhase(cachedForToday.workout_type === 'rest_recommendation' ? 'rest_day' : 'workout_ready');
+          }
           return;
         }
 
@@ -240,8 +249,16 @@ export function useTodayWorkout(): TodayState {
   const generateWorkout = useCallback(async (sid: string, cid: string, uid: string) => {
     setPhase('generating');
     try {
+      const now = new Date();
+      const h = now.getHours();
       const { data, error: fnError } = await supabase.functions.invoke('generate-workout', {
-        body: { sessionId: sid, checkInId: cid },
+        body: {
+          sessionId: sid,
+          checkInId: cid,
+          isoDate: now.toISOString().split('T')[0],
+          dayOfWeek: now.toLocaleDateString('en-US', { weekday: 'long' }),
+          timeOfDay: h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening',
+        },
       });
 
       if (fnError || !data) {

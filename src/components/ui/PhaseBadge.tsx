@@ -16,7 +16,10 @@ export function PhaseBadge({ phaseNumber, phaseName, isRegressed = false }: Phas
 
   return (
     <View style={[styles.badge, { backgroundColor }]}>
-      <Text style={[styles.text, { color: isRegressed ? Colors.semantic.danger : Colors.primaryDark }]}>
+      <Text
+        style={[styles.text, { color: isRegressed ? Colors.semantic.danger : Colors.primaryDark }]}
+        numberOfLines={1}
+      >
         Phase {phaseNumber} · {phaseName}
       </Text>
     </View>
@@ -26,6 +29,7 @@ export function PhaseBadge({ phaseNumber, phaseName, isRegressed = false }: Phas
 const styles = StyleSheet.create({
   badge: {
     alignSelf: 'flex-start',
+    flexShrink: 1,
     borderRadius: Radius.none,
     paddingVertical: Spacing.space1,
     paddingHorizontal: Spacing.space2,

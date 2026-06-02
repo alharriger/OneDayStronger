@@ -126,15 +126,24 @@ Deno.serve(async (req: Request) => {
     .select('prescribed_sets')
     .eq('phase_id', activePhase.id);
 
-  // Workout logs for sessions in window → exercise logs
+  // Workout logs for sessions in window → exercise logs + difficulty/gap signals
   const sessionIds = (sessions ?? []).map((s: { status: string; scheduled_date: string } & { id?: string }) => s).filter((s) => (s as Record<string, unknown>).id).map((s) => (s as Record<string, unknown>).id as string);
 
   let exerciseLogs: Array<{ sets_completed: number | null }> = [];
+  let recentWorkoutLogs: Array<{ difficulty_rating: number | null; pain_during_session: number | null; completed_at: string }> = [];
+
   if (sessionIds.length > 0) {
     const { data: workoutLogs } = await supabase
       .from('workout_logs')
-      .select('id')
-      .in('session_id', sessionIds);
+      .select('id, difficulty_rating, pain_during_session, completed_at')
+      .in('session_id', sessionIds)
+      .order('completed_at', { ascending: false });
+
+    recentWorkoutLogs = (workoutLogs ?? []).map((w: { id: string; difficulty_rating: number | null; pain_during_session: number | null; completed_at: string }) => ({
+      difficulty_rating: w.difficulty_rating,
+      pain_during_session: w.pain_during_session,
+      completed_at: w.completed_at,
+    }));
 
     const workoutLogIds = (workoutLogs ?? []).map((w: { id: string }) => w.id);
     if (workoutLogIds.length > 0) {
@@ -163,6 +172,7 @@ Deno.serve(async (req: Request) => {
     phaseExercises: (phaseExercises ?? []).map((e: { prescribed_sets: number | null }) => ({
       prescribed_sets: e.prescribed_sets,
     })),
+    recentWorkoutLogs,
   });
 
   // ── continue: do nothing ───────────────────────────────────────────────────

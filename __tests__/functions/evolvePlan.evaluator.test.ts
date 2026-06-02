@@ -46,6 +46,10 @@ function makeExerciseLogs(setsPerExercise: number[]) {
   return setsPerExercise.map((sets) => ({ sets_completed: sets }));
 }
 
+function makeWorkoutLog(completedAt: string, difficulty: number | null = null, pain: number | null = null) {
+  return { difficulty_rating: difficulty, pain_during_session: pain, completed_at: `${completedAt}T10:00:00Z` };
+}
+
 function baseInput(overrides: Partial<EvolveInput> = {}): EvolveInput {
   return {
     windowStartDate: WINDOW_START,
@@ -55,6 +59,7 @@ function baseInput(overrides: Partial<EvolveInput> = {}): EvolveInput {
     sessions: [],
     exerciseLogs: [],
     phaseExercises: PHASE_EXERCISES,
+    recentWorkoutLogs: [],
     ...overrides,
   };
 }
@@ -318,6 +323,163 @@ describe('evaluatePlanProgress', () => {
       const result = evaluatePlanProgress(input);
       expect(result.decision).toBe('hold');
       expect(result.rationale).toMatch(/holding/i);
+    });
+  });
+
+  describe('hold — high difficulty (RPE)', () => {
+    it('returns hold when avg difficulty >= threshold even if other criteria are met', () => {
+      const input = baseInput({
+        sessions: [
+          makeSession('2026-04-01', 'completed'),
+          makeSession('2026-04-04', 'completed'),
+          makeSession('2026-04-07', 'completed'),
+        ],
+        recentCheckIns: [
+          makeCheckIn('2026-04-01', 1),
+          makeCheckIn('2026-04-04', 1),
+          makeCheckIn('2026-04-07', 1),
+        ],
+        exerciseLogs: [
+          ...makeExerciseLogs([3, 3, 2]),
+          ...makeExerciseLogs([3, 3, 2]),
+          ...makeExerciseLogs([3, 3, 2]),
+        ],
+        recentWorkoutLogs: [
+          makeWorkoutLog('2026-04-01', 9),
+          makeWorkoutLog('2026-04-04', 9),
+          makeWorkoutLog('2026-04-07', 8),
+        ],
+        difficultyHoldThreshold: 8,
+      });
+      const result = evaluatePlanProgress(input);
+      expect(result.decision).toBe('hold');
+      expect(result.rationale).toMatch(/difficulty/i);
+    });
+
+    it('does NOT hold for difficulty when fewer than 2 logs with ratings', () => {
+      const input = baseInput({
+        sessions: [
+          makeSession('2026-04-01', 'completed'),
+          makeSession('2026-04-04', 'completed'),
+        ],
+        recentCheckIns: [
+          makeCheckIn('2026-04-01', 1),
+          makeCheckIn('2026-04-04', 1),
+        ],
+        exerciseLogs: [
+          ...makeExerciseLogs([3, 3, 2]),
+          ...makeExerciseLogs([3, 3, 2]),
+        ],
+        recentWorkoutLogs: [
+          makeWorkoutLog('2026-04-01', 9), // only 1 log — not enough
+        ],
+        difficultyHoldThreshold: 8,
+      });
+      const result = evaluatePlanProgress(input);
+      expect(result.decision).toBe('progress');
+    });
+
+    it('reports avgDifficulty in metrics', () => {
+      const input = baseInput({
+        sessions: [
+          makeSession('2026-04-01', 'completed'),
+          makeSession('2026-04-04', 'completed'),
+        ],
+        recentCheckIns: [
+          makeCheckIn('2026-04-01', 1),
+          makeCheckIn('2026-04-04', 1),
+        ],
+        exerciseLogs: [
+          ...makeExerciseLogs([3, 3, 2]),
+          ...makeExerciseLogs([3, 3, 2]),
+        ],
+        recentWorkoutLogs: [
+          makeWorkoutLog('2026-04-01', 6),
+          makeWorkoutLog('2026-04-04', 8),
+        ],
+      });
+      const result = evaluatePlanProgress(input);
+      expect(result.metrics.avgDifficulty).toBe(7); // (6+8)/2
+    });
+  });
+
+  describe('regress — session gap', () => {
+    it('returns regress when gap between sessions exceeds threshold', () => {
+      const input = baseInput({
+        sessions: [
+          makeSession('2026-04-01', 'completed'),
+          makeSession('2026-04-10', 'completed'), // 9-day gap
+        ],
+        recentCheckIns: [
+          makeCheckIn('2026-04-01', 1),
+          makeCheckIn('2026-04-10', 2),
+        ],
+        exerciseLogs: [
+          ...makeExerciseLogs([3, 3, 2]),
+          ...makeExerciseLogs([3, 3, 2]),
+        ],
+        recentWorkoutLogs: [
+          makeWorkoutLog('2026-04-01'),
+          makeWorkoutLog('2026-04-10'), // 9-day gap
+        ],
+        sessionGapRegressionDays: 7,
+      });
+      const result = evaluatePlanProgress(input);
+      expect(result.decision).toBe('regress');
+      expect(result.rationale).toMatch(/gap/i);
+    });
+
+    it('does NOT regress for gap when gap is below threshold', () => {
+      const input = baseInput({
+        sessions: [
+          makeSession('2026-04-01', 'completed'),
+          makeSession('2026-04-04', 'completed'), // 3-day gap
+          makeSession('2026-04-07', 'completed'),
+        ],
+        recentCheckIns: [
+          makeCheckIn('2026-04-01', 1),
+          makeCheckIn('2026-04-04', 1),
+          makeCheckIn('2026-04-07', 1),
+        ],
+        exerciseLogs: [
+          ...makeExerciseLogs([3, 3, 2]),
+          ...makeExerciseLogs([3, 3, 2]),
+          ...makeExerciseLogs([3, 3, 2]),
+        ],
+        recentWorkoutLogs: [
+          makeWorkoutLog('2026-04-01'),
+          makeWorkoutLog('2026-04-04'),
+          makeWorkoutLog('2026-04-07'),
+        ],
+        sessionGapRegressionDays: 7,
+      });
+      const result = evaluatePlanProgress(input);
+      expect(result.decision).toBe('progress');
+    });
+
+    it('reports maxSessionGapDays in metrics', () => {
+      const input = baseInput({
+        sessions: [
+          makeSession('2026-04-01', 'completed'),
+          makeSession('2026-04-04', 'completed'),
+        ],
+        recentCheckIns: [
+          makeCheckIn('2026-04-01', 1),
+          makeCheckIn('2026-04-04', 1),
+        ],
+        exerciseLogs: [
+          ...makeExerciseLogs([3, 3, 2]),
+          ...makeExerciseLogs([3, 3, 2]),
+        ],
+        recentWorkoutLogs: [
+          makeWorkoutLog('2026-04-01'),
+          makeWorkoutLog('2026-04-04'),
+        ],
+      });
+      const result = evaluatePlanProgress(input);
+      // gap is 3 days
+      expect(result.metrics.maxSessionGapDays).toBeGreaterThanOrEqual(2.9);
+      expect(result.metrics.maxSessionGapDays).toBeLessThanOrEqual(3.1);
     });
   });
 

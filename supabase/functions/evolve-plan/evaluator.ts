@@ -41,6 +41,12 @@ export interface PhaseExerciseRecord {
   prescribed_sets: number | null;
 }
 
+export interface WorkoutLogRecord {
+  difficulty_rating: number | null;
+  pain_during_session: number | null;
+  completed_at: string; // ISO timestamp
+}
+
 export interface EvolveInput {
   windowStartDate: string; // ISO date — filter check-ins and sessions at or after this date
   progressionCriteria: ProgressionCriteria;
@@ -49,6 +55,11 @@ export interface EvolveInput {
   sessions: SessionRecord[];
   exerciseLogs: ExerciseLogRecord[];
   phaseExercises: PhaseExerciseRecord[];
+  recentWorkoutLogs: WorkoutLogRecord[];
+  /** RPE threshold above which load is considered excessive (default: 8) */
+  difficultyHoldThreshold?: number;
+  /** Gap in days between sessions that registers as a deconditioning regression signal (default: 7) */
+  sessionGapRegressionDays?: number;
 }
 
 export interface EvolveMetrics {
@@ -58,6 +69,8 @@ export interface EvolveMetrics {
   consecutiveHighPainSessions: number;
   missedSessionsInWindow: number;
   completedSessionsInWindow: number;
+  avgDifficulty: number;
+  maxSessionGapDays: number;
 }
 
 export interface EvolveResult {
@@ -69,7 +82,13 @@ export interface EvolveResult {
 // ─── Evaluator ────────────────────────────────────────────────────────────────
 
 export function evaluatePlanProgress(input: EvolveInput): EvolveResult {
-  const { windowStartDate, progressionCriteria, regressionCriteria, recentCheckIns, sessions, exerciseLogs, phaseExercises } = input;
+  const {
+    windowStartDate, progressionCriteria, regressionCriteria,
+    recentCheckIns, sessions, exerciseLogs, phaseExercises,
+    recentWorkoutLogs,
+    difficultyHoldThreshold = 8,
+    sessionGapRegressionDays = 7,
+  } = input;
   const { pain_threshold, load_tolerance_pct, consistency_pct, window_days } = progressionCriteria;
   const { pain_consecutive_sessions, missed_sessions_window } = regressionCriteria;
 
@@ -143,23 +162,54 @@ export function evaluatePlanProgress(input: EvolveInput): EvolveResult {
 
   const missedSessionsInWindow = skippedSessions.length;
 
+  // ── Difficulty (RPE) signal ────────────────────────────────────────────────
+  // Average difficulty across recent workout logs. A consistently high RPE (≥ threshold)
+  // indicates the current phase load exceeds the user's capacity — treat as hold.
+  const logsWithDifficulty = recentWorkoutLogs.filter((l) => l.difficulty_rating !== null);
+  const avgDifficulty = logsWithDifficulty.length > 0
+    ? logsWithDifficulty.reduce((sum, l) => sum + (l.difficulty_rating ?? 0), 0) / logsWithDifficulty.length
+    : 0;
+  const difficultyHoldTriggered = logsWithDifficulty.length >= 2 && avgDifficulty >= difficultyHoldThreshold;
+
+  // ── Session gap signal ─────────────────────────────────────────────────────
+  // Find the largest gap between consecutive completed sessions using completed_at.
+  // A gap ≥ threshold indicates a deconditioning risk even if no sessions were "skipped".
+  const sortedCompletedLogs = [...recentWorkoutLogs]
+    .filter((l) => l.completed_at)
+    .sort((a, b) => a.completed_at.localeCompare(b.completed_at));
+  let maxSessionGapDays = 0;
+  for (let i = 1; i < sortedCompletedLogs.length; i++) {
+    const prev = new Date(sortedCompletedLogs[i - 1].completed_at).getTime();
+    const curr = new Date(sortedCompletedLogs[i].completed_at).getTime();
+    const gapDays = (curr - prev) / (1000 * 60 * 60 * 24);
+    if (gapDays > maxSessionGapDays) maxSessionGapDays = gapDays;
+  }
+  const gapRegressionTriggered = maxSessionGapDays >= sessionGapRegressionDays;
+
   const metrics: EvolveMetrics = buildMetrics(
     avgPain,
     loadTolerancePct,
     consistencyPct,
     consecutiveHighPainSessions,
     missedSessionsInWindow,
-    completedSessions.length
+    completedSessions.length,
+    avgDifficulty,
+    maxSessionGapDays,
   );
 
   // ── Regression check (safety first) ───────────────────────────────────────
   const painRegressionTriggered = consecutiveHighPainSessions >= pain_consecutive_sessions;
   const missedRegressionTriggered = missedSessionsInWindow >= missed_sessions_window;
 
-  if (painRegressionTriggered || missedRegressionTriggered) {
-    const reason = painRegressionTriggered
-      ? `Pain exceeded threshold for ${consecutiveHighPainSessions} consecutive session(s) (limit: ${pain_consecutive_sessions}).`
-      : `${missedSessionsInWindow} session(s) skipped in window (limit: ${missed_sessions_window}).`;
+  if (painRegressionTriggered || missedRegressionTriggered || gapRegressionTriggered) {
+    let reason: string;
+    if (painRegressionTriggered) {
+      reason = `Pain exceeded threshold for ${consecutiveHighPainSessions} consecutive session(s) (limit: ${pain_consecutive_sessions}).`;
+    } else if (gapRegressionTriggered) {
+      reason = `Session gap of ${Math.round(maxSessionGapDays)} days detected — deconditioning risk. Stepping back to rebuild load tolerance.`;
+    } else {
+      reason = `${missedSessionsInWindow} session(s) skipped in window (limit: ${missed_sessions_window}).`;
+    }
     return {
       decision: 'regress',
       rationale: reason,
@@ -171,6 +221,15 @@ export function evaluatePlanProgress(input: EvolveInput): EvolveResult {
   const painMet = avgPain <= pain_threshold;
   const loadMet = loadTolerancePct >= load_tolerance_pct;
   const consistencyMet = consistencyPct >= consistency_pct;
+
+  // High difficulty overrides progression — hold even if other criteria are met.
+  if (difficultyHoldTriggered) {
+    return {
+      decision: 'hold',
+      rationale: `Average session difficulty ${avgDifficulty.toFixed(1)}/10 ≥ ${difficultyHoldThreshold} — current load exceeds capacity. Holding phase until RPE decreases.`,
+      metrics,
+    };
+  }
 
   if (painMet && loadMet && consistencyMet) {
     return {
@@ -201,7 +260,9 @@ function buildMetrics(
   consistencyPct: number,
   consecutiveHighPainSessions: number,
   missedSessionsInWindow: number,
-  completedSessionsInWindow: number
+  completedSessionsInWindow: number,
+  avgDifficulty: number,
+  maxSessionGapDays: number,
 ): EvolveMetrics {
   return {
     avgPain,
@@ -210,5 +271,7 @@ function buildMetrics(
     consecutiveHighPainSessions,
     missedSessionsInWindow,
     completedSessionsInWindow,
+    avgDifficulty,
+    maxSessionGapDays,
   };
 }

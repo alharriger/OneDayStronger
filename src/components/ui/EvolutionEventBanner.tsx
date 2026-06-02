@@ -26,7 +26,9 @@ export function EvolutionEventBanner({
   rationale,
   onDismiss,
 }: EvolutionEventBannerProps) {
-  const { color, Icon } = config[eventType];
+  const entry = config[eventType];
+  if (!entry) return null;
+  const { color, Icon } = entry;
 
   return (
     <View style={[styles.banner, { borderLeftColor: color }]}>

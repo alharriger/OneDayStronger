@@ -13,8 +13,11 @@ export async function invokeRevisePlan(
     body: { injuryStatus },
   });
 
-  if (error) return { planId: null, summary: null, error: error.message };
-  if (data?.error) return { planId: null, summary: null, error: data.error };
+  if (error || data?.error) {
+    // Prefer the descriptive message from the response body over the generic SDK string
+    const message = data?.error ?? error?.message ?? 'Could not revise plan. Please try again.';
+    return { planId: null, summary: null, error: message };
+  }
 
   return {
     planId: data?.planId ?? null,
