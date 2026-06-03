@@ -15,6 +15,7 @@ import { getPendingLogs, removePendingLog } from '@/lib/localDb';
 import { saveWorkoutLog } from '@/services/workouts';
 import { updateSession } from '@/services/sessions';
 import { supabase } from '@/lib/supabase';
+import { notifyPlanChanged } from '@/lib/planEvents';
 import type { Database } from '@/lib/database.types';
 
 type ExerciseLogInsert = Database['public']['Tables']['exercise_logs']['Insert'];
@@ -79,9 +80,10 @@ export function useOfflineSync(): OfflineSyncState {
 
           await updateSession(log.session_id, { status: 'completed' });
 
-          // Fire-and-forget evolve-plan
+          // Trigger evolution; notify app after so the evolution banner can surface.
           supabase.functions
             .invoke('evolve-plan', { body: { sessionId: log.session_id, workoutLogId: logId } })
+            .then(() => notifyPlanChanged())
             .catch(() => {});
 
           await removePendingLog(log.id);

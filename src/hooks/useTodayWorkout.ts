@@ -23,6 +23,7 @@ import {
   cacheWorkout,
   getCachedWorkoutForSession,
   getCachedWorkoutForDate,
+  clearCachedWorkoutForDate,
   cacheActivePhase,
   type CachedPhaseExercise,
 } from '@/lib/localDb';
@@ -67,10 +68,12 @@ export interface TodayState {
   safetyDetails: string | null;
   error: string | null;
   isRetryable: boolean;
+  showPlanChangedBanner: boolean;
   // Actions
   submitCheckIn: (painLevel: number, sorenessLevel: number) => Promise<void>;
   retryWorkoutGeneration: () => Promise<void>;
   acknowledgeSafety: () => void;
+  dismissPlanChangedBanner: () => void;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -85,12 +88,17 @@ export function useTodayWorkout(): TodayState {
   const [safetyDetails, setSafetyDetails] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isRetryable, setIsRetryable] = useState(false);
+  const [showPlanChangedBanner, setShowPlanChangedBanner] = useState(false);
 
   // Set to true when a plan change fires while the Today tab may not be focused.
   // useFocusEffect reads and clears it on the next focus to guarantee a reinit.
   const planChangedRef = useRef(false);
+  // Guards against concurrent initializeToday calls (e.g. onPlanChanged fires
+  // immediately while useFocusEffect also fires when the tab regains focus).
+  const isInitializingRef = useRef(false);
 
   const resetState = useCallback(() => {
+    isInitializingRef.current = false;
     setPhase('loading');
     setWorkout(null);
     setSessionId(null);
@@ -101,6 +109,8 @@ export function useTodayWorkout(): TodayState {
 
   const initializeToday = useCallback(async () => {
     if (!user) return;
+    if (isInitializingRef.current) return;
+    isInitializingRef.current = true;
     setPhase('loading');
 
     try {
@@ -243,6 +253,8 @@ export function useTodayWorkout(): TodayState {
       setError('Something went wrong loading today\'s data.');
       setIsRetryable(true);
       setPhase('error');
+    } finally {
+      isInitializingRef.current = false;
     }
   }, [user]);
 
@@ -342,19 +354,22 @@ export function useTodayWorkout(): TodayState {
     initializeToday();
   }, [initializeToday]);
 
-  // When the user jumps to a different phase from the Plan screen:
-  // - Set the dirty flag immediately (handles the case where Today tab is not focused)
-  // - Also try to reinit right away (handles the case where it IS focused)
+  // When the plan changes (revise-plan, phase jump, workout logged):
+  // - Clear the local cache so stale data isn't served on next init
+  // - Mark the dirty flag — useFocusEffect owns the actual reinit
+  //   (avoids the race where both this handler AND useFocusEffect call
+  //    initializeToday concurrently when the user navigates to Today)
   useEffect(() => {
     return onPlanChanged(() => {
+      const today = new Date().toISOString().split('T')[0];
+      clearCachedWorkoutForDate(today).catch(() => {/* non-critical */});
       planChangedRef.current = true;
-      resetState();
-      initializeToday();
+      setShowPlanChangedBanner(true);
     });
-  }, [initializeToday, resetState]);
+  }, []);
 
-  // Belt-and-suspenders: re-initialize when the Today tab comes into focus if a
-  // plan change happened while the tab was in the background.
+  // Single owner of reinit after a plan change: fires when Today tab gains focus.
+  // resetState clears isInitializingRef so the new initializeToday can proceed.
   useFocusEffect(
     useCallback(() => {
       if (planChangedRef.current) {
@@ -401,6 +416,10 @@ export function useTodayWorkout(): TodayState {
     setPhase('check_in');
   }, []);
 
+  const dismissPlanChangedBanner = useCallback(() => {
+    setShowPlanChangedBanner(false);
+  }, []);
+
   return {
     phase,
     sessionId,
@@ -410,8 +429,10 @@ export function useTodayWorkout(): TodayState {
     safetyDetails,
     error,
     isRetryable,
+    showPlanChangedBanner,
     submitCheckIn: handleSubmitCheckIn,
     retryWorkoutGeneration,
     acknowledgeSafety,
+    dismissPlanChangedBanner,
   };
 }

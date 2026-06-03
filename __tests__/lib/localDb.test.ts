@@ -9,6 +9,7 @@ import {
   cacheWorkout,
   getCachedWorkoutForSession,
   getCachedWorkoutForDate,
+  clearCachedWorkoutForDate,
   cacheActivePhase,
   getCachedPhase,
   enqueueWorkoutLog,
@@ -252,6 +253,22 @@ describe('workout cache', () => {
     await cacheWorkout({ ...mockWorkout, plain_language_explanation: 'Updated' });
     const result = await getCachedWorkoutForSession('session-1');
     expect(result?.plain_language_explanation).toBe('Updated');
+    expect(store.cached_workout).toHaveLength(1);
+  });
+
+  it('clearCachedWorkoutForDate removes all entries for that date', async () => {
+    await cacheWorkout(mockWorkout); // cached_date: '2026-04-13'
+    await cacheWorkout({ ...mockWorkout, workout_id: 'w-2', session_id: 'session-2' });
+    await clearCachedWorkoutForDate('2026-04-13');
+    expect(await getCachedWorkoutForSession('session-1')).toBeNull();
+    expect(await getCachedWorkoutForSession('session-2')).toBeNull();
+  });
+
+  it('clearCachedWorkoutForDate leaves entries for other dates intact', async () => {
+    await cacheWorkout(mockWorkout); // cached_date: '2026-04-13'
+    await cacheWorkout({ ...mockWorkout, workout_id: 'w-other', session_id: 'session-other', cached_date: '2026-04-14' });
+    await clearCachedWorkoutForDate('2026-04-13');
+    expect(await getCachedWorkoutForDate('2026-04-14')).toBeTruthy();
     expect(store.cached_workout).toHaveLength(1);
   });
 });

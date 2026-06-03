@@ -248,74 +248,95 @@ Deno.serve(async (req: Request) => {
       rest_seconds: e.rest_seconds,
     }));
 
-    const systemPrompt = buildSystemPrompt(
-      conditionModule,
-      conditionId,
-      protocolVersion,
-      workoutType,
-      painLevel,
-      sorenessLevel,
-      exercisesForPrompt,
-      (recentCheckIns ?? []) as Array<{ pain_level: number; checked_in_at: string }>,
-      schedulingContext,
-    );
-
-    const userMessage = 'Generate the workout for today.';
-
-    let callResult: Awaited<ReturnType<typeof callLLM>>;
-    try {
-      callResult = await callLLM(systemPrompt, userMessage);
-    } catch (llmErr) {
-      console.warn('[generate-workout] LLM first attempt failed, retrying in 4s:', (llmErr as Error).message);
-      await new Promise((resolve) => setTimeout(resolve, 4000));
-      callResult = await callLLM(systemPrompt, userMessage);
-    }
+    const isMock = Deno.env.get('MOCK_LLM') === 'true';
     let parsed: GenerateWorkoutResponse;
-    let validationError: string | null = null;
 
-    try {
-      const json = JSON.parse(callResult.content);
-      parsed = validateGenerateWorkoutResponse(json);
-    } catch (err) {
-      validationError = (err as Error).message;
+    if (isMock) {
+      console.log('[generate-workout] MOCK_LLM=true — using hardcoded workout');
+      parsed = {
+        workout_type: workoutType,
+        plain_language_explanation: workoutType === 'modified'
+          ? '[Mock] Modified session — load reduced due to elevated pain. Focus on form and stay within the pain guidelines.'
+          : '[Mock] Standard PHT session. Focus on controlled tempo and monitor pain throughout.',
+        exercises: exercisesForPrompt.slice(0, 3).map((e: Record<string, unknown>) => ({
+          exercise_name: String(e.exercise_name ?? 'Exercise'),
+          sets: Math.min(Math.max(Math.round(Number(e.prescribed_sets) || 3), 1), 10),
+          reps: String(e.prescribed_reps ?? '8-10'),
+          load: String(e.load_target ?? 'bodyweight'),
+          tempo: String(e.tempo ?? '3-1-3'),
+          rest_seconds: Math.min(Math.max(Math.round(Number(e.rest_seconds) || 60), 0), 600),
+          notes: '[Mock data]',
+        })),
+      };
+    } else {
+      const systemPrompt = buildSystemPrompt(
+        conditionModule,
+        conditionId,
+        protocolVersion,
+        workoutType,
+        painLevel,
+        sorenessLevel,
+        exercisesForPrompt,
+        (recentCheckIns ?? []) as Array<{ pain_level: number; checked_in_at: string }>,
+        schedulingContext,
+      );
 
-      const retryMessage = `Your previous response failed schema validation: ${validationError}\nPlease fix the JSON and try again.`;
-      callResult = await callLLM(systemPrompt, retryMessage);
+      const userMessage = 'Generate the workout for today.';
+
+      let callResult: Awaited<ReturnType<typeof callLLM>>;
+      try {
+        callResult = await callLLM(systemPrompt, userMessage);
+      } catch (llmErr) {
+        console.warn('[generate-workout] LLM first attempt failed, retrying in 4s:', (llmErr as Error).message);
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        callResult = await callLLM(systemPrompt, userMessage);
+      }
+      let validationError: string | null = null;
 
       try {
         const json = JSON.parse(callResult.content);
         parsed = validateGenerateWorkoutResponse(json);
-        validationError = null;
-      } catch {
-        await logLlmCall({
-          supabase, userId: user.id, edgeFunction: 'generate-workout',
-          promptVersion: PROMPT_VERSION,
-          inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
-          latencyMs: callResult.latencyMs, success: false,
-          errorMessage: validationError ?? 'Unknown validation error',
-        });
+      } catch (err) {
+        validationError = (err as Error).message;
 
-        const fallback = await getFallbackWorkout(supabase, user.id);
-        if (fallback) {
-          return new Response(JSON.stringify(fallback), {
-            status: 200,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        const retryMessage = `Your previous response failed schema validation: ${validationError}\nPlease fix the JSON and try again.`;
+        callResult = await callLLM(systemPrompt, retryMessage);
+
+        try {
+          const json = JSON.parse(callResult.content);
+          parsed = validateGenerateWorkoutResponse(json);
+          validationError = null;
+        } catch {
+          await logLlmCall({
+            supabase, userId: user.id, edgeFunction: 'generate-workout',
+            promptVersion: PROMPT_VERSION,
+            inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
+            latencyMs: callResult.latencyMs, success: false,
+            errorMessage: validationError ?? 'Unknown validation error',
           });
+
+          const fallback = await getFallbackWorkout(supabase, user.id);
+          if (fallback) {
+            return new Response(JSON.stringify(fallback), {
+              status: 200,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+
+          return new Response(
+            JSON.stringify({ error: 'We had trouble generating your workout. Please try again.', retryable: true }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          );
         }
-
-        return new Response(
-          JSON.stringify({ error: 'We had trouble generating your workout. Please try again.', retryable: true }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
       }
-    }
 
-    await logLlmCall({
-      supabase, userId: user.id, edgeFunction: 'generate-workout',
-      promptVersion: PROMPT_VERSION,
-      inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
-      latencyMs: callResult.latencyMs, success: true,
-    });
+      await logLlmCall({
+        supabase, userId: user.id, edgeFunction: 'generate-workout',
+        promptVersion: PROMPT_VERSION,
+        inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
+        latencyMs: callResult.latencyMs, success: true,
+      });
+    }
 
     const { data: dbWorkout, error: workoutError } = await supabase
       .from('generated_workouts')

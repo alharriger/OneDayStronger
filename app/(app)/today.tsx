@@ -4,6 +4,7 @@ import {
   Text,
   ScrollView,
   StyleSheet,
+  TouchableOpacity,
   ViewStyle,
   TextStyle,
 } from 'react-native';
@@ -190,7 +191,7 @@ export default function TodayScreen() {
   type BannerEventType = typeof BANNER_EVENT_TYPES[number];
 
   React.useEffect(() => {
-    if (!user || (today.phase !== 'workout_ready' && today.phase !== 'check_in')) return;
+    if (!user || (today.phase !== 'workout_ready' && today.phase !== 'check_in' && today.phase !== 'workout_completed')) return;
     getUnseenEvents(user.id).then((events) => {
       const bannerEvent = events.find((e) =>
         BANNER_EVENT_TYPES.includes(e.event_type as BannerEventType)
@@ -312,15 +313,26 @@ export default function TodayScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {today.showPlanChangedBanner && (
+          <View style={styles.planChangedBanner}>
+            <Text style={styles.planChangedBannerText}>
+              Your plan has been updated — generating your new workout…
+            </Text>
+            <TouchableOpacity onPress={today.dismissPlanChangedBanner} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={styles.planChangedBannerDismiss}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {evolutionBanner && (
           <EvolutionEventBanner
             eventType={evolutionBanner.eventType}
             title={
               evolutionBanner.eventType === 'progression'
-                ? "Your plan has been updated — enter your levels to generate a new workout"
+                ? "You've advanced to a new phase"
                 : evolutionBanner.eventType === 'regression'
-                ? "Your plan has been updated — enter your levels to generate a new workout"
-                : "Holding your current phase"
+                ? "Your plan has been adjusted"
+                : "Holding at your current phase"
             }
             rationale={evolutionBanner.rationale}
             onDismiss={handleDismissEvolution}
@@ -504,4 +516,29 @@ const styles = StyleSheet.create({
   retryButton: {
     minWidth: 160,
   } as ViewStyle,
+
+  // Plan-changed banner
+  planChangedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.bg.surfaceRaised,
+    borderRadius: 8,
+    padding: Spacing.space3,
+    marginBottom: Spacing.space3,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.text.muted,
+  } as ViewStyle,
+
+  planChangedBannerText: {
+    ...Typography.bodySmall,
+    color: Colors.text.secondary,
+    flex: 1,
+    marginRight: Spacing.space2,
+  } as TextStyle,
+
+  planChangedBannerDismiss: {
+    ...Typography.label,
+    color: Colors.text.secondary,
+  } as TextStyle,
 });

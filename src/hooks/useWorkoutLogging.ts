@@ -166,10 +166,11 @@ export function useWorkoutLogging({
     // Notify Today screen and Plan tab to re-initialize (session is now complete)
     notifyPlanChanged();
 
-    // Trigger plan evolution (fire and forget — failure is silent per spec)
+    // Trigger plan evolution; notify app when done so the evolution banner can surface.
+    // Failure is silent — evolution retries on next log submission.
     supabase.functions.invoke('evolve-plan', {
       body: { sessionId, workoutLogId: logId },
-    }).catch(() => {/* silently ignore — evolution retries on next log */});
+    }).then(() => notifyPlanChanged()).catch(() => {/* silently ignore */});
 
     setPhase('success');
   }, [user, isOnline, sessionId, workoutId, difficultyRating, painDuringSession, sessionNotes, exerciseActuals]);
