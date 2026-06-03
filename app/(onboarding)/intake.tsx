@@ -9,7 +9,10 @@ import {
   ViewStyle,
   TextStyle,
   Platform,
+  InputAccessoryView,
+  Keyboard,
 } from 'react-native';
+
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -24,6 +27,9 @@ import {
   INTAKE_TOTAL_STEPS,
   type IntakeStep,
 } from '@/hooks/useIntakeForm';
+
+// iOS-only: nativeID for the age input accessory toolbar
+const AGE_ACCESSORY_ID = 'intake-age-done';
 
 // ─── Step progress dots ───────────────────────────────────────────────────────
 
@@ -171,6 +177,20 @@ export default function IntakeScreen() {
           loading={isSubmitting}
         />
       </View>
+
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView nativeID={AGE_ACCESSORY_ID}>
+          <View style={styles.inputAccessoryBar}>
+            <TouchableOpacity
+              onPress={() => Keyboard.dismiss()}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={styles.inputAccessoryDoneButton}
+            >
+              <Text style={styles.inputAccessoryDoneText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      )}
     </SafeAreaView>
   );
 }
@@ -199,7 +219,7 @@ function Step1({
           onChangeText={(v) => onUpdate({ age: v })}
           keyboardType="number-pad"
           placeholder="e.g. 34"
-          returnKeyType="done"
+          inputAccessoryViewID={Platform.OS === 'ios' ? AGE_ACCESSORY_ID : undefined}
           error={error?.includes('age') ? error : undefined}
         />
         <View>
@@ -432,5 +452,26 @@ const styles = StyleSheet.create({
   errorText: {
     ...Typography.bodySmall,
     color: Colors.semantic.danger,
+  } as TextStyle,
+
+  inputAccessoryBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    backgroundColor: Colors.bg.surfaceRaised,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.border.faint,
+    paddingHorizontal: Spacing.space5,
+    paddingVertical: Spacing.space2,
+  } as ViewStyle,
+
+  inputAccessoryDoneButton: {
+    paddingHorizontal: Spacing.space3,
+    paddingVertical: Spacing.space1,
+  } as ViewStyle,
+
+  inputAccessoryDoneText: {
+    ...Typography.labelLarge,
+    color: Colors.primary,
   } as TextStyle,
 });

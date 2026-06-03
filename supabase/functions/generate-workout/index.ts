@@ -27,6 +27,10 @@ import { resolveWorkoutModification } from '../_shared/workoutModification.ts';
 
 const PROMPT_VERSION = 'generate-workout-v2';
 
+// Increments on every MOCK_LLM call so the tester can see the workout change.
+// Resets on cold start — fine for dev use.
+let _mockCallCount = 0;
+
 // ─── Workout JSON schema (injected into system prompt template) ───────────────
 
 const WORKOUT_SCHEMA = `{
@@ -252,20 +256,26 @@ Deno.serve(async (req: Request) => {
     let parsed: GenerateWorkoutResponse;
 
     if (isMock) {
-      console.log('[generate-workout] MOCK_LLM=true — using hardcoded workout');
+      // Alternate A/B so the tester can confirm the workout visibly changed.
+      const isVariantB = (_mockCallCount++ % 2) === 1;
+      console.log(`[generate-workout] MOCK_LLM=true — variant ${isVariantB ? 'B' : 'A'}`);
+      // Variant B reverses the exercise order so the first card is visibly different.
+      const mockExercises = isVariantB
+        ? [...exercisesForPrompt].reverse().slice(0, 3)
+        : exercisesForPrompt.slice(0, 3);
       parsed = {
         workout_type: workoutType,
-        plain_language_explanation: workoutType === 'modified'
-          ? '[Mock] Modified session — load reduced due to elevated pain. Focus on form and stay within the pain guidelines.'
-          : '[Mock] Standard PHT session. Focus on controlled tempo and monitor pain throughout.',
-        exercises: exercisesForPrompt.slice(0, 3).map((e: Record<string, unknown>) => ({
+        plain_language_explanation: isVariantB
+          ? `[Mock B] ${workoutType === 'modified' ? 'Modified' : 'Standard'} session — today focuses on end-phase exercises with extra control. Same phase, different order to confirm refresh.`
+          : `[Mock A] ${workoutType === 'modified' ? 'Modified' : 'Standard'} PHT session. Full prescribed load, controlled tempo throughout.`,
+        exercises: mockExercises.map((e: Record<string, unknown>) => ({
           exercise_name: String(e.exercise_name ?? 'Exercise'),
           sets: Math.min(Math.max(Math.round(Number(e.prescribed_sets) || 3), 1), 10),
           reps: String(e.prescribed_reps ?? '8-10'),
           load: String(e.load_target ?? 'bodyweight'),
-          tempo: String(e.tempo ?? '3-1-3'),
+          tempo: isVariantB ? '2-1-2' : String(e.tempo ?? '3-1-3'),
           rest_seconds: Math.min(Math.max(Math.round(Number(e.rest_seconds) || 60), 0), 600),
-          notes: '[Mock data]',
+          notes: isVariantB ? '[Mock B]' : '[Mock A]',
         })),
       };
     } else {
