@@ -28,6 +28,16 @@ interface ExerciseCardProps {
   onVideoPress?: (url: string) => void;
 }
 
+/** Format a reps value without adding "reps" when it's already time-based. */
+function formatReps(reps: string | null): string | null {
+  if (!reps) return null;
+  // Time-based (e.g. "45s", "45 seconds", "45 sec") — show as-is, normalised
+  if (/\d+\s*(s|sec|seconds?)\b/i.test(reps)) {
+    return reps.replace(/\s*seconds?\b/gi, 's');
+  }
+  return `${reps} reps`;
+}
+
 export function ExerciseCard({ exercise, onVideoPress }: ExerciseCardProps) {
   const chips: { label: string; value: string }[] = [];
   if (exercise.load) chips.push({ label: 'Load', value: exercise.load });
@@ -37,7 +47,7 @@ export function ExerciseCard({ exercise, onVideoPress }: ExerciseCardProps) {
 
   const prescription = [
     exercise.sets != null ? `${exercise.sets} sets` : null,
-    exercise.reps ? `${exercise.reps} reps` : null,
+    formatReps(exercise.reps),
   ]
     .filter(Boolean)
     .join(' × ');
@@ -62,6 +72,7 @@ export function ExerciseCard({ exercise, onVideoPress }: ExerciseCardProps) {
         >
           {chips.map((chip) => (
             <View key={chip.label} style={styles.chip}>
+              <Text style={styles.chipLabel}>{chip.label}</Text>
               <Text style={styles.chipText}>{chip.value}</Text>
             </View>
           ))}
@@ -119,7 +130,15 @@ const styles = StyleSheet.create({
     borderRadius: Radius.chip,
     paddingVertical: Spacing.space1,
     paddingHorizontal: Spacing.space2,
+    flexDirection: 'row',
+    gap: 4,
+    alignItems: 'center',
   } as ViewStyle,
+
+  chipLabel: {
+    ...Typography.bodySmall,
+    color: Colors.text.muted,
+  } as TextStyle,
 
   chipText: {
     ...Typography.bodySmall,

@@ -84,14 +84,14 @@ export function useWorkoutLogging({
   const [error, setError] = useState<string | null>(null);
   const [isQueued, setIsQueued] = useState(false);
 
-  // Initialize exercise actuals from prescribed exercises
+  // Initialize exercise actuals — sets start at 0 so the user explicitly logs what they did
   const [exerciseActuals, setExerciseActuals] = useState<ExerciseActuals[]>(
     exercises.map((e) => ({
       exerciseId: e.exerciseId,
       exerciseName: e.exerciseName,
-      setsCompleted: e.prescribedSets,
-      repsPerSet: Array(e.prescribedSets).fill(0),
-      weightPerSet: Array(e.prescribedSets).fill(null),
+      setsCompleted: 0,
+      repsPerSet: [],
+      weightPerSet: [],
       modifications: '',
     }))
   );

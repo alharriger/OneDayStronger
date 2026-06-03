@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { getTodaySession, createSession, updateSession, getRecentSessions } from '@/services/sessions';
+import { getTodaySession, createSession, updateSession, getRecentSessions, getCompletionHistory } from '@/services/sessions';
 import { createChain } from '../helpers/supabaseMock';
 
 jest.mock('@/lib/supabase', () => ({
@@ -69,6 +69,58 @@ describe('sessions service', () => {
       mockedFrom.mockReturnValue(createChain({ data: sessions, error: null }));
       const result = await getRecentSessions('u', 2);
       expect(result).toHaveLength(2);
+    });
+  });
+
+  describe('getCompletionHistory', () => {
+    it('returns zero streak and empty dates on error', async () => {
+      mockedFrom.mockReturnValue(createChain({ data: null, error: { message: 'db error' } }));
+      const result = await getCompletionHistory('u');
+      expect(result.streakCount).toBe(0);
+      expect(result.recentCompletedDates).toEqual([]);
+    });
+
+    it('returns zero streak and empty dates when no completed sessions', async () => {
+      mockedFrom.mockReturnValue(createChain({ data: [], error: null }));
+      const result = await getCompletionHistory('u');
+      expect(result.streakCount).toBe(0);
+      expect(result.recentCompletedDates).toEqual([]);
+    });
+
+    it('computes streak correctly for consecutive days including today', async () => {
+      const today = new Date().toISOString().split('T')[0];
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      // Today + yesterday completed → streak of 2
+      mockedFrom.mockReturnValue(createChain({
+        data: [
+          { scheduled_date: today },
+          { scheduled_date: yesterdayStr },
+        ],
+        error: null,
+      }));
+      const result = await getCompletionHistory('u');
+      expect(result.streakCount).toBe(2);
+      expect(result.recentCompletedDates).toContain(today);
+      expect(result.recentCompletedDates).toContain(yesterdayStr);
+    });
+
+    it('breaks streak on gap', async () => {
+      const today = new Date().toISOString().split('T')[0];
+      // Two days ago but NOT yesterday → streak should be 1 (only today)
+      const twoDaysAgo = new Date();
+      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+      const twoDaysAgoStr = twoDaysAgo.toISOString().split('T')[0];
+      mockedFrom.mockReturnValue(createChain({
+        data: [
+          { scheduled_date: today },
+          { scheduled_date: twoDaysAgoStr },
+        ],
+        error: null,
+      }));
+      const result = await getCompletionHistory('u');
+      expect(result.streakCount).toBe(1);
     });
   });
 });

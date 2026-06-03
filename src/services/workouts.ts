@@ -84,3 +84,35 @@ export async function getWorkoutLog(sessionId: string): Promise<WorkoutLog | nul
   if (error) return null;
   return data;
 }
+
+export interface ExerciseLogEntry {
+  id: string;
+  workout_log_id: string;
+  exercise_id: string | null;
+  exercise_name: string;
+  sets_completed: number | null;
+  reps_per_set: number[] | null;
+  weight_per_set: number[] | null;
+  modifications: string | null;
+}
+
+export interface WorkoutLogWithExercises extends WorkoutLog {
+  exercise_logs: ExerciseLogEntry[];
+}
+
+export async function getWorkoutLogWithExercises(
+  sessionId: string
+): Promise<WorkoutLogWithExercises | null> {
+  const { data, error } = await supabase
+    .from('workout_logs')
+    .select(`
+      *,
+      exercise_logs (*)
+    `)
+    .eq('session_id', sessionId)
+    .limit(1)
+    .single();
+
+  if (error) return null;
+  return data as WorkoutLogWithExercises;
+}

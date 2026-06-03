@@ -63,7 +63,8 @@ describe('useWorkoutLogging', () => {
     const { result } = renderHook(() => useWorkoutLogging(defaultProps));
     expect(result.current.exerciseActuals).toHaveLength(2);
     expect(result.current.exerciseActuals[0].exerciseName).toBe('Nordic Curl');
-    expect(result.current.exerciseActuals[0].setsCompleted).toBe(3);
+    // Sets start at 0 so the user explicitly logs what they completed
+    expect(result.current.exerciseActuals[0].setsCompleted).toBe(0);
   });
 
   it('initializes with default ratings', () => {

@@ -36,6 +36,7 @@ const loadingState = {
   sessionId: null,
   checkInId: null,
   workout: null,
+  completedData: null,
   safetyEventId: null,
   safetyDetails: null,
   error: null,
@@ -65,14 +66,23 @@ describe('TodayScreen', () => {
     expect(() => render(<TodayScreen />)).not.toThrow();
   });
 
-  it('displays the screen title', () => {
+  it('shows loading state while phase is loading', () => {
+    render(<TodayScreen />);
+    expect(screen.getByText(/loading/i)).toBeTruthy();
+  });
+});
+
+describe('TodayScreen — header visibility', () => {
+  it('shows Today hero title in check_in phase', () => {
+    mockUseTodayWorkout.mockReturnValue({ ...loadingState, phase: 'check_in', sessionId: 'session-1' });
     render(<TodayScreen />);
     expect(screen.getByText('Today')).toBeTruthy();
   });
 
-  it('shows loading state while phase is loading', () => {
+  it('hides Today hero title in loading phase', () => {
+    mockUseTodayWorkout.mockReturnValue(loadingState);
     render(<TodayScreen />);
-    expect(screen.getByText(/loading/i)).toBeTruthy();
+    expect(screen.queryByText('Today')).toBeNull();
   });
 });
 
