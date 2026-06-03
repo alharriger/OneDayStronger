@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ViewStyle, TextStyle } from 'react-native';
-import { ArrowCircleUp, ArrowCircleDown, PauseCircle, X } from 'phosphor-react-native';
+import { ArrowCircleUp, ArrowCircleDown, PauseCircle, ArrowCounterClockwise, X } from 'phosphor-react-native';
 import { Colors, Typography, Spacing, Radius } from '@/theme';
 import type { EventType } from './Card';
 
@@ -18,6 +18,7 @@ const config: Record<
   progression: { color: Colors.semantic.good, Icon: ArrowCircleUp },
   regression: { color: Colors.semantic.danger, Icon: ArrowCircleDown },
   hold: { color: Colors.semantic.warning, Icon: PauseCircle },
+  plan_revised: { color: Colors.primary, Icon: ArrowCounterClockwise },
 };
 
 export function EvolutionEventBanner({

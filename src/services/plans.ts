@@ -165,16 +165,10 @@ export async function jumpToPhase(
       .eq('id', todaySession.id);
 
     // Delete today's workout so it is regenerated for the new phase.
+    // The check-in is preserved — the user's pain levels are still valid
+    // regardless of which phase they jumped to.
     await supabase
       .from('generated_workouts')
-      .delete()
-      .eq('session_id', todaySession.id);
-
-    // Delete today's check-in so the Today screen resets to the pain/soreness
-    // input step. The user should enter fresh readings for the new phase's first
-    // workout rather than having a workout silently generated with stale data.
-    await supabase
-      .from('check_ins')
       .delete()
       .eq('session_id', todaySession.id);
   }

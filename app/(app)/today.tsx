@@ -4,7 +4,6 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  TouchableOpacity,
   ViewStyle,
   TextStyle,
 } from 'react-native';
@@ -172,7 +171,7 @@ export default function TodayScreen() {
   const today = useTodayWorkout();
   const [showingSafety, setShowingSafety] = useState(false);
   const [evolutionBanner, setEvolutionBanner] = useState<{
-    eventType: 'progression' | 'regression' | 'hold';
+    eventType: 'progression' | 'regression' | 'hold' | 'plan_revised';
     rationale: string;
     eventId: string;
   } | null>(null);
@@ -184,14 +183,18 @@ export default function TodayScreen() {
     }
   }, [today.phase]);
 
-  // Load unseen evolution events when workout is ready or when arriving at check-in
-  // after a user-initiated phase jump (so the banner shows before they re-enter pain levels).
-  // Only show banner-eligible event types — 'plan_revised' and others are excluded.
-  const BANNER_EVENT_TYPES = ['progression', 'regression', 'hold'] as const;
+  // Load unseen evolution events when the phase changes to any visible state.
+  // 'generating' is included so the banner appears alongside the generating spinner.
+  const BANNER_EVENT_TYPES = ['progression', 'regression', 'hold', 'plan_revised'] as const;
   type BannerEventType = typeof BANNER_EVENT_TYPES[number];
 
   React.useEffect(() => {
-    if (!user || (today.phase !== 'workout_ready' && today.phase !== 'check_in' && today.phase !== 'workout_completed')) return;
+    if (!user || (
+      today.phase !== 'workout_ready' &&
+      today.phase !== 'check_in' &&
+      today.phase !== 'workout_completed' &&
+      today.phase !== 'generating'
+    )) return;
     getUnseenEvents(user.id).then((events) => {
       const bannerEvent = events.find((e) =>
         BANNER_EVENT_TYPES.includes(e.event_type as BannerEventType)
@@ -313,17 +316,6 @@ export default function TodayScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {today.showPlanChangedBanner && (
-          <View style={styles.planChangedBanner}>
-            <Text style={styles.planChangedBannerText}>
-              Your plan has been updated — generating your new workout…
-            </Text>
-            <TouchableOpacity onPress={today.dismissPlanChangedBanner} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={styles.planChangedBannerDismiss}>✕</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
         {evolutionBanner && (
           <EvolutionEventBanner
             eventType={evolutionBanner.eventType}
@@ -332,6 +324,8 @@ export default function TodayScreen() {
                 ? "You've advanced to a new phase"
                 : evolutionBanner.eventType === 'regression'
                 ? "Your plan has been adjusted"
+                : evolutionBanner.eventType === 'plan_revised'
+                ? "Your plan has been updated"
                 : "Holding at your current phase"
             }
             rationale={evolutionBanner.rationale}
@@ -517,28 +511,4 @@ const styles = StyleSheet.create({
     minWidth: 160,
   } as ViewStyle,
 
-  // Plan-changed banner
-  planChangedBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: Colors.bg.surfaceRaised,
-    borderRadius: 8,
-    padding: Spacing.space3,
-    marginBottom: Spacing.space3,
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.text.muted,
-  } as ViewStyle,
-
-  planChangedBannerText: {
-    ...Typography.bodySmall,
-    color: Colors.text.secondary,
-    flex: 1,
-    marginRight: Spacing.space2,
-  } as TextStyle,
-
-  planChangedBannerDismiss: {
-    ...Typography.label,
-    color: Colors.text.secondary,
-  } as TextStyle,
 });

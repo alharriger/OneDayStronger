@@ -27,10 +27,6 @@ import { resolveWorkoutModification } from '../_shared/workoutModification.ts';
 
 const PROMPT_VERSION = 'generate-workout-v2';
 
-// Increments on every MOCK_LLM call so the tester can see the workout change.
-// Resets on cold start — fine for dev use.
-let _mockCallCount = 0;
-
 // ─── Workout JSON schema (injected into system prompt template) ───────────────
 
 const WORKOUT_SCHEMA = `{
@@ -256,9 +252,13 @@ Deno.serve(async (req: Request) => {
     let parsed: GenerateWorkoutResponse;
 
     if (isMock) {
-      // Alternate A/B so the tester can confirm the workout visibly changed.
-      const isVariantB = (_mockCallCount++ % 2) === 1;
-      console.log(`[generate-workout] MOCK_LLM=true — variant ${isVariantB ? 'B' : 'A'}`);
+      // Variant alternates every 30 seconds so each new generation (triggered by
+      // revise-plan, phase jump, or a new check-in) reliably shows different exercises.
+      // checkInId-based seeding was too stable — it didn't change across plan revisions.
+      const isVariantB = (Math.floor(Date.now() / 30_000) % 2) === 1;
+      // Include generation time in the explanation so the tester can confirm it regenerated.
+      const generatedAt = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      console.log(`[generate-workout] MOCK_LLM=true — variant ${isVariantB ? 'B' : 'A'}, generated ${generatedAt}`);
       // Variant B reverses the exercise order so the first card is visibly different.
       const mockExercises = isVariantB
         ? [...exercisesForPrompt].reverse().slice(0, 3)
@@ -266,8 +266,8 @@ Deno.serve(async (req: Request) => {
       parsed = {
         workout_type: workoutType,
         plain_language_explanation: isVariantB
-          ? `[Mock B] ${workoutType === 'modified' ? 'Modified' : 'Standard'} session — today focuses on end-phase exercises with extra control. Same phase, different order to confirm refresh.`
-          : `[Mock A] ${workoutType === 'modified' ? 'Modified' : 'Standard'} PHT session. Full prescribed load, controlled tempo throughout.`,
+          ? `[Mock B · ${generatedAt}] ${workoutType === 'modified' ? 'Modified' : 'Standard'} session — today focuses on end-phase exercises with extra control. Same phase, different order to confirm refresh.`
+          : `[Mock A · ${generatedAt}] ${workoutType === 'modified' ? 'Modified' : 'Standard'} PHT session. Full prescribed load, controlled tempo throughout.`,
         exercises: mockExercises.map((e: Record<string, unknown>) => ({
           exercise_name: String(e.exercise_name ?? 'Exercise'),
           sets: Math.min(Math.max(Math.round(Number(e.prescribed_sets) || 3), 1), 10),

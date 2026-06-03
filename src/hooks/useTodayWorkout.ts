@@ -68,12 +68,10 @@ export interface TodayState {
   safetyDetails: string | null;
   error: string | null;
   isRetryable: boolean;
-  showPlanChangedBanner: boolean;
   // Actions
   submitCheckIn: (painLevel: number, sorenessLevel: number) => Promise<void>;
   retryWorkoutGeneration: () => Promise<void>;
   acknowledgeSafety: () => void;
-  dismissPlanChangedBanner: () => void;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -88,7 +86,6 @@ export function useTodayWorkout(): TodayState {
   const [safetyDetails, setSafetyDetails] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isRetryable, setIsRetryable] = useState(false);
-  const [showPlanChangedBanner, setShowPlanChangedBanner] = useState(false);
 
   // Set to true when a plan change fires while the Today tab may not be focused.
   // useFocusEffect reads and clears it on the next focus to guarantee a reinit.
@@ -364,7 +361,6 @@ export function useTodayWorkout(): TodayState {
       const today = new Date().toISOString().split('T')[0];
       clearCachedWorkoutForDate(today).catch(() => {/* non-critical */});
       planChangedRef.current = true;
-      setShowPlanChangedBanner(true);
     });
   }, []);
 
@@ -416,10 +412,6 @@ export function useTodayWorkout(): TodayState {
     setPhase('check_in');
   }, []);
 
-  const dismissPlanChangedBanner = useCallback(() => {
-    setShowPlanChangedBanner(false);
-  }, []);
-
   return {
     phase,
     sessionId,
@@ -429,10 +421,8 @@ export function useTodayWorkout(): TodayState {
     safetyDetails,
     error,
     isRetryable,
-    showPlanChangedBanner,
     submitCheckIn: handleSubmitCheckIn,
     retryWorkoutGeneration,
     acknowledgeSafety,
-    dismissPlanChangedBanner,
   };
 }

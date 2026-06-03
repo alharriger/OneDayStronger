@@ -77,6 +77,36 @@ Added `logLlmCall` to the previously-unlogged double-failure path (P2 fix). The 
 
 ---
 
+## P6 — Client-side DELETE operations silently fail without RLS DELETE policies
+
+**What went wrong:**
+`jumpToPhase` called `supabase.from('check_ins').delete()` and `supabase.from('generated_workouts').delete()` using the user JWT. Because no RLS DELETE policies existed on those tables, Supabase returned success with 0 rows affected — no error thrown, no indication anything was skipped. The check-in and workout persisted and the Today screen never reset.
+
+**How it was diagnosed:**
+User reported that phase jump appeared to succeed but Today still showed the old workout rather than the check-in screen. Checked `0002_rls_policies.sql` — confirmed only SELECT and INSERT policies existed. No DELETE policies anywhere. Added DELETE policies via `0008_rls_delete_policies.sql` and the flow worked immediately.
+
+**How to work going forward:**
+- Before writing any client-side delete (user JWT, not service role), check that a matching RLS DELETE policy exists.
+- When writing a new table's RLS block, include DELETE policy alongside SELECT/INSERT — it is almost always needed for client-facing tables.
+- After adding a delete in a service function, run a quick sanity query to confirm rows were actually removed.
+
+---
+
+## P7 — Multiple independent systems firing the same UI notification causes stacking banners
+
+**What went wrong:**
+Plan change notifications had two independent paths: `notifyPlanChanged()` set a `showPlanChangedBanner` inline toast, AND `getUnseenEvents()` fetched a `plan_evolution_events` row to show an `EvolutionEventBanner`. Both triggered on plan change, both rendered simultaneously, producing two visible banners at once — one plain, one rich.
+
+**How it was diagnosed:**
+User reported seeing "Your plan has been updated" toast AND "You've advanced to a new phase" event banner at the same time after a phase jump.
+
+**How to work going forward:**
+- Designate a single authoritative notification path before building any notification feature.
+- When adding a new notification trigger, audit all existing notification systems to ensure only one fires per event.
+- Inline toast state (`showXBanner`) is a red flag when a DB-backed event system (`plan_evolution_events`) already exists — the DB-backed system is always authoritative.
+
+---
+
 ## P4 — Passing an event type to a component that doesn't handle it causes a silent crash
 
 **What went wrong:**

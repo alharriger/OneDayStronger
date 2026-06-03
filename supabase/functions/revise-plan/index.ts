@@ -532,10 +532,12 @@ Deno.serve(async (req: Request) => {
     // Supersede old plan only after new plan is fully written
     await supabase.from('recovery_plans').update({ status: 'superseded' }).eq('id', plan.id);
 
-    // Update today's session to the new active phase and clear today's generated
-    // workout — the Today screen will auto-regenerate it using the existing check-in.
-    // The check-in is preserved so today's pain data informs the new workout.
-    if (newActivePhaseId) {
+    // Clear today's generated workout so the Today screen auto-regenerates it
+    // using the existing check-in. The check-in is preserved so today's pain
+    // data informs the new workout. Workout deletion is unconditional — even on
+    // a hold decision the user should get a freshly generated workout.
+    // Session phase update only applies when the active phase actually changed.
+    {
       const today = new Date().toISOString().split('T')[0];
       const { data: todaySession } = await supabase
         .from('sessions')
@@ -546,10 +548,12 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
 
       if (todaySession) {
-        await supabase
-          .from('sessions')
-          .update({ plan_phase_id: newActivePhaseId })
-          .eq('id', todaySession.id);
+        if (newActivePhaseId) {
+          await supabase
+            .from('sessions')
+            .update({ plan_phase_id: newActivePhaseId })
+            .eq('id', todaySession.id);
+        }
         await supabase
           .from('generated_workouts')
           .delete()
