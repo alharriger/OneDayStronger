@@ -10,7 +10,7 @@
  */
 
 const GROQ_MODEL   = 'llama-3.3-70b-versatile';
-const GEMINI_MODEL = 'gemini-2.0-flash-exp';
+const GEMINI_MODEL = 'gemini-2.0-flash';
 
 // Tracks which model was actually used on the last successful call in this isolate.
 // Deno edge functions are isolated per invocation — this is safe.
@@ -92,7 +92,7 @@ async function callGemini(
   if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
   const startMs = Date.now();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
 
@@ -141,14 +141,22 @@ export async function callLLM(
   userMessage: string,
   maxTokens = 4096,
 ): Promise<LLMCallResult> {
+  let groqError: Error | null = null;
   try {
     const result = await callGroq(systemPrompt, userMessage, maxTokens);
     _lastModelUsed = GROQ_MODEL;
     return result;
   } catch (err) {
-    console.warn(`[llm] Groq failed (${(err as Error).message}), falling back to Gemini`);
+    groqError = err as Error;
+    console.warn(`[llm] Groq failed (${groqError.message}), falling back to Gemini`);
+  }
+
+  try {
     const result = await callGemini(systemPrompt, userMessage, maxTokens);
     _lastModelUsed = GEMINI_MODEL;
     return result;
+  } catch (geminiErr) {
+    // Throw both errors so callers can log the full picture
+    throw new Error(`Groq: ${groqError?.message ?? 'unknown'}; Gemini: ${(geminiErr as Error).message}`);
   }
 }

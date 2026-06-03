@@ -264,6 +264,18 @@ Acknowledgment sets `professional_care_acknowledged = true` on the `safety_event
 
 ---
 
+## Planning checklist
+
+Before writing any code for a new feature or bug fix:
+
+- [ ] Read every file that will be touched — understand existing behavior before changing it
+- [ ] List every table and column read or written; verify they exist with `list_tables` or `information_schema`
+- [ ] For any client-side delete: confirm a matching RLS DELETE policy exists (see pitfalls P6)
+- [ ] For any new notification or banner: audit all existing notification systems to ensure only one fires (see pitfalls P7)
+- [ ] For any new `event_type` value written to DB: trace every component that consumes that table and confirm none will crash (see pitfalls P4)
+- [ ] **Properly account for edge cases** — explicitly list the edge cases for the feature and decide how each is handled before implementation begins. Do not leave edge cases as implicit assumptions.
+- [ ] Confirm the graceful fallback for every LLM-dependent path
+
 ## Phase completion checklist
 
 Before merging a phase branch to `main`:

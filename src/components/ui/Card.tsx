@@ -3,7 +3,7 @@ import { View, StyleSheet, ViewStyle } from 'react-native';
 import { Colors, Radius, Spacing } from '@/theme';
 
 export type CardVariant = 'standard' | 'phase' | 'event';
-export type EventType = 'progression' | 'regression' | 'hold';
+export type EventType = 'progression' | 'regression' | 'hold' | 'plan_revised';
 
 interface CardProps {
   children: React.ReactNode;
@@ -16,6 +16,7 @@ const eventBorderColor: Record<EventType, string> = {
   progression: Colors.semantic.good,
   regression: Colors.semantic.danger,
   hold: Colors.semantic.warning,
+  plan_revised: Colors.primary,
 };
 
 export function Card({ children, variant = 'standard', eventType, style }: CardProps) {

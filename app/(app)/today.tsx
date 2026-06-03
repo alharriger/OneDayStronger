@@ -82,6 +82,21 @@ function RestDayCard({ explanation }: RestDayCardProps) {
   );
 }
 
+// ─── Workout completed card ───────────────────────────────────────────────────
+
+interface WorkoutCompletedCardProps {
+  explanation: string;
+}
+
+function WorkoutCompletedCard({ explanation }: WorkoutCompletedCardProps) {
+  return (
+    <View style={styles.completedCard}>
+      <Text style={styles.completedTitle}>Workout complete</Text>
+      <Text style={styles.completedBody}>{explanation}</Text>
+    </View>
+  );
+}
+
 // ─── Workout display ──────────────────────────────────────────────────────────
 
 interface WorkoutDisplayProps {
@@ -156,7 +171,7 @@ export default function TodayScreen() {
   const today = useTodayWorkout();
   const [showingSafety, setShowingSafety] = useState(false);
   const [evolutionBanner, setEvolutionBanner] = useState<{
-    eventType: 'progression' | 'regression' | 'hold';
+    eventType: 'progression' | 'regression' | 'hold' | 'plan_revised';
     rationale: string;
     eventId: string;
   } | null>(null);
@@ -168,17 +183,27 @@ export default function TodayScreen() {
     }
   }, [today.phase]);
 
-  // Load unseen evolution events when workout is ready or when arriving at check-in
-  // after a user-initiated phase jump (so the banner shows before they re-enter pain levels).
+  // Load unseen evolution events when the phase changes to any visible state.
+  // 'generating' is included so the banner appears alongside the generating spinner.
+  const BANNER_EVENT_TYPES = ['progression', 'regression', 'hold', 'plan_revised'] as const;
+  type BannerEventType = typeof BANNER_EVENT_TYPES[number];
+
   React.useEffect(() => {
-    if (!user || (today.phase !== 'workout_ready' && today.phase !== 'check_in')) return;
+    if (!user || (
+      today.phase !== 'workout_ready' &&
+      today.phase !== 'check_in' &&
+      today.phase !== 'workout_completed' &&
+      today.phase !== 'generating'
+    )) return;
     getUnseenEvents(user.id).then((events) => {
-      if (events.length > 0) {
-        const latest = events[0];
+      const bannerEvent = events.find((e) =>
+        BANNER_EVENT_TYPES.includes(e.event_type as BannerEventType)
+      );
+      if (bannerEvent) {
         setEvolutionBanner({
-          eventType: latest.event_type as 'progression' | 'regression' | 'hold',
-          rationale: latest.rationale,
-          eventId: latest.id,
+          eventType: bannerEvent.event_type as BannerEventType,
+          rationale: bannerEvent.rationale,
+          eventId: bannerEvent.id,
         });
       }
     });
@@ -237,6 +262,16 @@ export default function TodayScreen() {
           />
         );
 
+      case 'workout_completed':
+        return (
+          <WorkoutCompletedCard
+            explanation={
+              today.workout?.plain_language_explanation ??
+              'You completed your workout today. Great work!'
+            }
+          />
+        );
+
       case 'rest_day':
         return (
           <RestDayCard
@@ -286,10 +321,12 @@ export default function TodayScreen() {
             eventType={evolutionBanner.eventType}
             title={
               evolutionBanner.eventType === 'progression'
-                ? "Your plan has been updated — enter your levels to generate a new workout"
+                ? "You've advanced to a new phase"
                 : evolutionBanner.eventType === 'regression'
-                ? "Your plan has been updated — enter your levels to generate a new workout"
-                : "Holding your current phase"
+                ? "Your plan has been adjusted"
+                : evolutionBanner.eventType === 'plan_revised'
+                ? "Your plan has been updated"
+                : "Holding at your current phase"
             }
             rationale={evolutionBanner.rationale}
             onDismiss={handleDismissEvolution}
@@ -397,6 +434,26 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
   } as TextStyle,
 
+  // Workout completed
+  completedCard: {
+    backgroundColor: Colors.bg.surfaceRaised,
+    borderRadius: 12,
+    padding: Spacing.space5,
+    gap: Spacing.space3,
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.semantic.good,
+  } as ViewStyle,
+
+  completedTitle: {
+    ...Typography.h3,
+    color: Colors.text.primary,
+  } as TextStyle,
+
+  completedBody: {
+    ...Typography.body,
+    color: Colors.text.secondary,
+  } as TextStyle,
+
   // Workout
   workoutContainer: {
     gap: Spacing.space4,
@@ -453,4 +510,5 @@ const styles = StyleSheet.create({
   retryButton: {
     minWidth: 160,
   } as ViewStyle,
+
 });

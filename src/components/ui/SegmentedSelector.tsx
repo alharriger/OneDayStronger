@@ -42,7 +42,12 @@ export function SegmentedSelector<T extends string>({
               accessibilityState={{ selected: isSelected }}
               accessibilityLabel={option.label}
             >
-              <Text style={[styles.chipLabel, isSelected && styles.chipLabelSelected]}>
+              <Text
+                style={[styles.chipLabel, isSelected && styles.chipLabelSelected]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+              >
                 {option.label}
               </Text>
             </TouchableOpacity>
@@ -70,8 +75,8 @@ const styles = StyleSheet.create({
   } as ViewStyle,
 
   chip: {
-    flex: 1,
-    minWidth: 80,
+    flexBasis: '46%',
+    flexGrow: 1,
     paddingVertical: Spacing.space2,
     paddingHorizontal: Spacing.space3,
     borderRadius: Radius.none,

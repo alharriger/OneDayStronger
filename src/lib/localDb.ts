@@ -172,6 +172,11 @@ export async function getCachedWorkoutForDate(
   );
 }
 
+export async function clearCachedWorkoutForDate(date: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('DELETE FROM cached_workout WHERE cached_date = ?', [date]);
+}
+
 // ─── Phase cache ──────────────────────────────────────────────────────────────
 
 export async function cacheActivePhase(

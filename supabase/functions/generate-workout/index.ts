@@ -61,6 +61,7 @@ function buildSystemPrompt(
   sorenessLevel: number,
   phaseExercises: Array<Record<string, unknown>>,
   recentCheckIns: Array<{ pain_level: number; checked_in_at: string }>,
+  schedulingContext: string,
 ): string {
   const modRule = resolveWorkoutModification(painLevel, module.protocol.workout_modification_rules);
 
@@ -82,6 +83,7 @@ function buildSystemPrompt(
     soreness_level: String(sorenessLevel),
     recent_checkins: recentStr,
     workout_schema: WORKOUT_SCHEMA,
+    scheduling_context: schedulingContext,
   }) + `\n\nworkout_type for this session: "${workoutType}" — use this value exactly in your response.`;
 }
 
@@ -117,7 +119,21 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json();
-    const { sessionId, checkInId } = body as { sessionId: string; checkInId: string };
+    const { sessionId, checkInId, isoDate, dayOfWeek, timeOfDay } = body as {
+      sessionId: string;
+      checkInId: string;
+      isoDate?: string;
+      dayOfWeek?: string;
+      timeOfDay?: string;
+    };
+
+    const schedulingContext = (() => {
+      const date = isoDate ?? new Date().toISOString().split('T')[0];
+      const day = dayOfWeek ?? new Date().toLocaleDateString('en-US', { weekday: 'long' });
+      const h = new Date().getHours();
+      const time = timeOfDay ?? (h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening');
+      return `${day}, ${date} (${time})`;
+    })();
 
     if (!sessionId || !checkInId) {
       return new Response(JSON.stringify({ error: 'sessionId and checkInId are required' }), {
@@ -206,7 +222,7 @@ Deno.serve(async (req: Request) => {
         .single(),
       supabase
         .from('phase_exercises')
-        .select('*, exercises(name)')
+        .select('*')
         .eq('phase_id', session.plan_phase_id)
         .order('order_index'),
       supabase
@@ -224,7 +240,7 @@ Deno.serve(async (req: Request) => {
     const conditionModule = await loadConditionModule(supabase, conditionId);
 
     const exercisesForPrompt = (phaseExercises ?? []).map((e: Record<string, unknown>) => ({
-      exercise_name: (e.exercises as Record<string, unknown>)?.name ?? 'Exercise',
+      exercise_name: (e.name as string) ?? 'Exercise',
       prescribed_sets: e.prescribed_sets,
       prescribed_reps: e.prescribed_reps,
       load_target: e.load_target,
@@ -232,73 +248,105 @@ Deno.serve(async (req: Request) => {
       rest_seconds: e.rest_seconds,
     }));
 
-    const systemPrompt = buildSystemPrompt(
-      conditionModule,
-      conditionId,
-      protocolVersion,
-      workoutType,
-      painLevel,
-      sorenessLevel,
-      exercisesForPrompt,
-      (recentCheckIns ?? []) as Array<{ pain_level: number; checked_in_at: string }>,
-    );
-
-    const userMessage = 'Generate the workout for today.';
-
-    let callResult: Awaited<ReturnType<typeof callLLM>>;
-    try {
-      callResult = await callLLM(systemPrompt, userMessage);
-    } catch (llmErr) {
-      console.warn('[generate-workout] LLM first attempt failed, retrying in 4s:', (llmErr as Error).message);
-      await new Promise((resolve) => setTimeout(resolve, 4000));
-      callResult = await callLLM(systemPrompt, userMessage);
-    }
+    const isMock = Deno.env.get('MOCK_LLM') === 'true';
     let parsed: GenerateWorkoutResponse;
-    let validationError: string | null = null;
 
-    try {
-      const json = JSON.parse(callResult.content);
-      parsed = validateGenerateWorkoutResponse(json);
-    } catch (err) {
-      validationError = (err as Error).message;
+    if (isMock) {
+      // Variant alternates every 30 seconds so each new generation (triggered by
+      // revise-plan, phase jump, or a new check-in) reliably shows different exercises.
+      // checkInId-based seeding was too stable — it didn't change across plan revisions.
+      const isVariantB = (Math.floor(Date.now() / 30_000) % 2) === 1;
+      // Include generation time in the explanation so the tester can confirm it regenerated.
+      const generatedAt = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      console.log(`[generate-workout] MOCK_LLM=true — variant ${isVariantB ? 'B' : 'A'}, generated ${generatedAt}`);
+      // Variant B reverses the exercise order so the first card is visibly different.
+      const mockExercises = isVariantB
+        ? [...exercisesForPrompt].reverse().slice(0, 3)
+        : exercisesForPrompt.slice(0, 3);
+      parsed = {
+        workout_type: workoutType,
+        plain_language_explanation: isVariantB
+          ? `[Mock B · ${generatedAt}] ${workoutType === 'modified' ? 'Modified' : 'Standard'} session — today focuses on end-phase exercises with extra control. Same phase, different order to confirm refresh.`
+          : `[Mock A · ${generatedAt}] ${workoutType === 'modified' ? 'Modified' : 'Standard'} PHT session. Full prescribed load, controlled tempo throughout.`,
+        exercises: mockExercises.map((e: Record<string, unknown>) => ({
+          exercise_name: String(e.exercise_name ?? 'Exercise'),
+          sets: Math.min(Math.max(Math.round(Number(e.prescribed_sets) || 3), 1), 10),
+          reps: String(e.prescribed_reps ?? '8-10'),
+          load: String(e.load_target ?? 'bodyweight'),
+          tempo: isVariantB ? '2-1-2' : String(e.tempo ?? '3-1-3'),
+          rest_seconds: Math.min(Math.max(Math.round(Number(e.rest_seconds) || 60), 0), 600),
+          notes: isVariantB ? '[Mock B]' : '[Mock A]',
+        })),
+      };
+    } else {
+      const systemPrompt = buildSystemPrompt(
+        conditionModule,
+        conditionId,
+        protocolVersion,
+        workoutType,
+        painLevel,
+        sorenessLevel,
+        exercisesForPrompt,
+        (recentCheckIns ?? []) as Array<{ pain_level: number; checked_in_at: string }>,
+        schedulingContext,
+      );
 
-      const retryMessage = `Your previous response failed schema validation: ${validationError}\nPlease fix the JSON and try again.`;
-      callResult = await callLLM(systemPrompt, retryMessage);
+      const userMessage = 'Generate the workout for today.';
+
+      let callResult: Awaited<ReturnType<typeof callLLM>>;
+      try {
+        callResult = await callLLM(systemPrompt, userMessage);
+      } catch (llmErr) {
+        console.warn('[generate-workout] LLM first attempt failed, retrying in 4s:', (llmErr as Error).message);
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        callResult = await callLLM(systemPrompt, userMessage);
+      }
+      let validationError: string | null = null;
 
       try {
         const json = JSON.parse(callResult.content);
         parsed = validateGenerateWorkoutResponse(json);
-        validationError = null;
-      } catch {
-        await logLlmCall({
-          supabase, userId: user.id, edgeFunction: 'generate-workout',
-          promptVersion: PROMPT_VERSION,
-          inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
-          latencyMs: callResult.latencyMs, success: false,
-          errorMessage: validationError ?? 'Unknown validation error',
-        });
+      } catch (err) {
+        validationError = (err as Error).message;
 
-        const fallback = await getFallbackWorkout(supabase, user.id);
-        if (fallback) {
-          return new Response(JSON.stringify(fallback), {
-            status: 200,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        const retryMessage = `Your previous response failed schema validation: ${validationError}\nPlease fix the JSON and try again.`;
+        callResult = await callLLM(systemPrompt, retryMessage);
+
+        try {
+          const json = JSON.parse(callResult.content);
+          parsed = validateGenerateWorkoutResponse(json);
+          validationError = null;
+        } catch {
+          await logLlmCall({
+            supabase, userId: user.id, edgeFunction: 'generate-workout',
+            promptVersion: PROMPT_VERSION,
+            inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
+            latencyMs: callResult.latencyMs, success: false,
+            errorMessage: validationError ?? 'Unknown validation error',
           });
+
+          const fallback = await getFallbackWorkout(supabase, user.id);
+          if (fallback) {
+            return new Response(JSON.stringify(fallback), {
+              status: 200,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+
+          return new Response(
+            JSON.stringify({ error: 'We had trouble generating your workout. Please try again.', retryable: true }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          );
         }
-
-        return new Response(
-          JSON.stringify({ error: 'We had trouble generating your workout. Please try again.', retryable: true }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
       }
-    }
 
-    await logLlmCall({
-      supabase, userId: user.id, edgeFunction: 'generate-workout',
-      promptVersion: PROMPT_VERSION,
-      inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
-      latencyMs: callResult.latencyMs, success: true,
-    });
+      await logLlmCall({
+        supabase, userId: user.id, edgeFunction: 'generate-workout',
+        promptVersion: PROMPT_VERSION,
+        inputTokens: callResult.inputTokens, outputTokens: callResult.outputTokens,
+        latencyMs: callResult.latencyMs, success: true,
+      });
+    }
 
     const { data: dbWorkout, error: workoutError } = await supabase
       .from('generated_workouts')

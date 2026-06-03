@@ -18,6 +18,7 @@ import { updateSession } from '@/services/sessions';
 import { createSafetyEvent } from '@/services/safetyEvents';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { enqueueWorkoutLog } from '@/lib/localDb';
+import { notifyPlanChanged } from '@/lib/planEvents';
 import type { Database } from '@/lib/database.types';
 
 type ExerciseLogInsert = Database['public']['Tables']['exercise_logs']['Insert'];
@@ -162,10 +163,14 @@ export function useWorkoutLogging({
     // Mark session completed
     await updateSession(sessionId, { status: 'completed' });
 
-    // Trigger plan evolution (fire and forget — failure is silent per spec)
+    // Notify Today screen and Plan tab to re-initialize (session is now complete)
+    notifyPlanChanged();
+
+    // Trigger plan evolution; notify app when done so the evolution banner can surface.
+    // Failure is silent — evolution retries on next log submission.
     supabase.functions.invoke('evolve-plan', {
       body: { sessionId, workoutLogId: logId },
-    }).catch(() => {/* silently ignore — evolution retries on next log */});
+    }).then(() => notifyPlanChanged()).catch(() => {/* silently ignore */});
 
     setPhase('success');
   }, [user, isOnline, sessionId, workoutId, difficultyRating, painDuringSession, sessionNotes, exerciseActuals]);

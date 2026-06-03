@@ -23,6 +23,7 @@ import {
   cacheWorkout,
   getCachedWorkoutForSession,
   getCachedWorkoutForDate,
+  clearCachedWorkoutForDate,
   cacheActivePhase,
   type CachedPhaseExercise,
 } from '@/lib/localDb';
@@ -34,6 +35,7 @@ export type TodayPhase =
   | 'check_in'
   | 'generating'
   | 'workout_ready'
+  | 'workout_completed'
   | 'rest_day'
   | 'safety_advisory'
   | 'error';
@@ -88,8 +90,12 @@ export function useTodayWorkout(): TodayState {
   // Set to true when a plan change fires while the Today tab may not be focused.
   // useFocusEffect reads and clears it on the next focus to guarantee a reinit.
   const planChangedRef = useRef(false);
+  // Guards against concurrent initializeToday calls (e.g. onPlanChanged fires
+  // immediately while useFocusEffect also fires when the tab regains focus).
+  const isInitializingRef = useRef(false);
 
   const resetState = useCallback(() => {
+    isInitializingRef.current = false;
     setPhase('loading');
     setWorkout(null);
     setSessionId(null);
@@ -100,6 +106,8 @@ export function useTodayWorkout(): TodayState {
 
   const initializeToday = useCallback(async () => {
     if (!user) return;
+    if (isInitializingRef.current) return;
+    isInitializingRef.current = true;
     setPhase('loading');
 
     try {
@@ -202,7 +210,11 @@ export function useTodayWorkout(): TodayState {
             is_fallback: 0,
             fallback_banner: null,
           }).catch(() => {});
-          setPhase(existingWorkout.workout_type === 'rest_recommendation' ? 'rest_day' : 'workout_ready');
+          if (session.status === 'completed') {
+            setPhase('workout_completed');
+          } else {
+            setPhase(existingWorkout.workout_type === 'rest_recommendation' ? 'rest_day' : 'workout_ready');
+          }
           return;
         }
 
@@ -219,7 +231,11 @@ export function useTodayWorkout(): TodayState {
             isFallback: cachedForToday.is_fallback === 1,
             fallbackBanner: cachedForToday.fallback_banner ?? undefined,
           });
-          setPhase(cachedForToday.workout_type === 'rest_recommendation' ? 'rest_day' : 'workout_ready');
+          if (session.status === 'completed') {
+            setPhase('workout_completed');
+          } else {
+            setPhase(cachedForToday.workout_type === 'rest_recommendation' ? 'rest_day' : 'workout_ready');
+          }
           return;
         }
 
@@ -234,14 +250,24 @@ export function useTodayWorkout(): TodayState {
       setError('Something went wrong loading today\'s data.');
       setIsRetryable(true);
       setPhase('error');
+    } finally {
+      isInitializingRef.current = false;
     }
   }, [user]);
 
   const generateWorkout = useCallback(async (sid: string, cid: string, uid: string) => {
     setPhase('generating');
     try {
+      const now = new Date();
+      const h = now.getHours();
       const { data, error: fnError } = await supabase.functions.invoke('generate-workout', {
-        body: { sessionId: sid, checkInId: cid },
+        body: {
+          sessionId: sid,
+          checkInId: cid,
+          isoDate: now.toISOString().split('T')[0],
+          dayOfWeek: now.toLocaleDateString('en-US', { weekday: 'long' }),
+          timeOfDay: h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening',
+        },
       });
 
       if (fnError || !data) {
@@ -325,19 +351,21 @@ export function useTodayWorkout(): TodayState {
     initializeToday();
   }, [initializeToday]);
 
-  // When the user jumps to a different phase from the Plan screen:
-  // - Set the dirty flag immediately (handles the case where Today tab is not focused)
-  // - Also try to reinit right away (handles the case where it IS focused)
+  // When the plan changes (revise-plan, phase jump, workout logged):
+  // - Clear the local cache so stale data isn't served on next init
+  // - Mark the dirty flag — useFocusEffect owns the actual reinit
+  //   (avoids the race where both this handler AND useFocusEffect call
+  //    initializeToday concurrently when the user navigates to Today)
   useEffect(() => {
     return onPlanChanged(() => {
+      const today = new Date().toISOString().split('T')[0];
+      clearCachedWorkoutForDate(today).catch(() => {/* non-critical */});
       planChangedRef.current = true;
-      resetState();
-      initializeToday();
     });
-  }, [initializeToday, resetState]);
+  }, []);
 
-  // Belt-and-suspenders: re-initialize when the Today tab comes into focus if a
-  // plan change happened while the tab was in the background.
+  // Single owner of reinit after a plan change: fires when Today tab gains focus.
+  // resetState clears isInitializingRef so the new initializeToday can proceed.
   useFocusEffect(
     useCallback(() => {
       if (planChangedRef.current) {

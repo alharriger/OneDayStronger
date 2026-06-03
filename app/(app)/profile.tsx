@@ -18,6 +18,7 @@ import { getProfile } from '@/services/profiles';
 import { getInjuryIntake, getInjuryStatus, updateInjuryStatus } from '@/services/intake';
 import { invokeRevisePlan } from '@/services/revision';
 import { signOut, deleteAccount } from '@/lib/auth';
+import { notifyPlanChanged } from '@/lib/planEvents';
 import type { Database } from '@/lib/database.types';
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
@@ -101,7 +102,7 @@ export default function ProfileScreen() {
     if (painShift >= 2) {
       Alert.alert(
         'Status saved',
-        'Your baseline pain has changed significantly. Would you like Claude to revise your rehabilitation plan based on your new status?',
+        'Your baseline pain has changed significantly. Would you like us to revise your rehabilitation plan based on your new status?',
         [
           { text: 'Not now', style: 'cancel' },
           {
@@ -128,6 +129,7 @@ export default function ProfileScreen() {
     if (error) {
       Alert.alert('Could not revise plan', error);
     } else {
+      notifyPlanChanged();
       Alert.alert(
         'Plan revised',
         'Your rehabilitation plan has been updated based on your new status. Check the Plan tab to see your revised program.'
@@ -287,7 +289,7 @@ export default function ProfileScreen() {
               <View style={styles.revisePlanBanner}>
                 <ActivityIndicator color={Colors.primary} size="small" />
                 <Text style={styles.revisePlanText}>
-                  Revising your plan with Claude…
+                  Revising your plan…
                 </Text>
               </View>
             )}
@@ -379,8 +381,9 @@ const styles = StyleSheet.create({
   intakeValue: {
     ...Typography.body,
     color: Colors.text.primary,
-    flex: 1,
+    flex: 2,
     textAlign: 'right',
+    flexShrink: 1,
   } as TextStyle,
   goalText: {
     ...Typography.body,

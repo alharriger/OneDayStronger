@@ -77,8 +77,15 @@ export default function PlanGenerationScreen() {
     setErrorMessage(null);
 
     try {
+      const now = new Date();
+      const h = now.getHours();
       const { data, error } = await supabase.functions.invoke('generate-plan', {
-        body: { user_id: user!.id },
+        body: {
+          user_id: user!.id,
+          isoDate: now.toISOString().split('T')[0],
+          dayOfWeek: now.toLocaleDateString('en-US', { weekday: 'long' }),
+          timeOfDay: h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening',
+        },
       });
 
       if (error || !data?.planId) {

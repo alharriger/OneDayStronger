@@ -74,11 +74,22 @@ function hasSafetyFlag(text: string, keywords: string[]): boolean {
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
 
+function buildSchedulingContext(isoDate?: string, dayOfWeek?: string, timeOfDay?: string): string {
+  const date = isoDate ?? new Date().toISOString().split('T')[0];
+  const day = dayOfWeek ?? new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const time = timeOfDay ?? (() => {
+    const h = new Date().getHours();
+    return h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
+  })();
+  return `${day}, ${date} (${time})`;
+}
+
 function buildSystemPrompt(
   module: ConditionModule,
   irritabilityLevel: 'high' | 'moderate' | 'low',
   intake: Record<string, unknown>,
   rehabGoal: string,
+  schedulingContext: string,
 ): string {
   const irritabilityConfig = module.protocol.irritability_levels[irritabilityLevel];
   const startingPhaseTemplate = module.protocol.phase_templates.find(
@@ -107,6 +118,7 @@ function buildSystemPrompt(
     intake_summary: intakeSummary,
     phase_count: String(module.protocol.phase_templates.length),
     plan_schema: PLAN_SCHEMA,
+    scheduling_context: schedulingContext,
   });
 }
 
@@ -138,11 +150,30 @@ async function insertPlan(
   return plan.id as string;
 }
 
+/**
+ * Build a lookup map from exercise id OR name → canonical display name.
+ * The LLM may return either form (e.g. "pht_nordic_hamstring_curl" or
+ * "Nordic Hamstring Curl") — both should resolve to the display name.
+ */
+function buildExerciseDisplayNameMap(
+  library: Array<{ id: string; name: string }>,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const entry of library) {
+    map.set(entry.id, entry.name);   // id → display name
+    map.set(entry.name, entry.name); // name → display name (identity)
+  }
+  return map;
+}
+
 async function insertPhases(
   supabase: ReturnType<typeof createClient>,
   planId: string,
   phases: PlanPhase[],
+  exerciseLibrary: Array<{ id: string; name: string }>,
 ): Promise<string[]> {
+  const displayNames = buildExerciseDisplayNameMap(exerciseLibrary);
+
   // Insert all phases in parallel — they are independent of each other
   const phaseRecords = await Promise.all(
     phases.map(async (phase, i) => {
@@ -167,32 +198,23 @@ async function insertPhases(
     }),
   );
 
-  // For each phase: resolve exercise library IDs in parallel, then bulk insert all exercises
+  // For each phase: bulk insert all exercises with normalized display names
   await Promise.all(
     phaseRecords.map(async ({ phaseId, phase }) => {
-      const resolvedExercises = await Promise.all(
-        phase.exercises.map(async (exercise, ei) => {
-          const { data: libExercise } = await supabase
-            .from('exercises')
-            .select('id')
-            .ilike('name', exercise.name)
-            .maybeSingle();
+      const exerciseRows = phase.exercises.map((exercise, ei) => ({
+        phase_id: phaseId,
+        exercise_id: null, // exercises table is not seeded; name is canonical
+        name: displayNames.get(exercise.name) ?? exercise.name,
+        prescribed_sets: exercise.sets,
+        prescribed_reps: exercise.reps,
+        load_target: exercise.load_target,
+        tempo: exercise.tempo,
+        rest_seconds: exercise.rest_seconds,
+        order_index: ei,
+        notes: exercise.notes,
+      }));
 
-          return {
-            phase_id: phaseId,
-            exercise_id: libExercise?.id ?? null,
-            prescribed_sets: exercise.sets,
-            prescribed_reps: exercise.reps,
-            load_target: exercise.load_target,
-            tempo: exercise.tempo,
-            rest_seconds: exercise.rest_seconds,
-            order_index: ei,
-            notes: exercise.notes,
-          };
-        }),
-      );
-
-      const { error: exError } = await supabase.from('phase_exercises').insert(resolvedExercises);
+      const { error: exError } = await supabase.from('phase_exercises').insert(exerciseRows);
       if (exError) throw new Error(`Failed to insert phase_exercises for phase ${phaseId}: ${exError.message}`);
     }),
   );
@@ -216,12 +238,20 @@ Deno.serve(async (req: Request) => {
   // Passed in the request body to allow future multi-condition support without
   // a redeploy.
   let conditionId = 'pht';
+  let isoDate: string | undefined;
+  let dayOfWeek: string | undefined;
+  let timeOfDay: string | undefined;
   try {
     const body = await req.clone().json();
     if (typeof body?.conditionId === 'string' && body.conditionId.length > 0) {
       conditionId = body.conditionId;
     }
+    isoDate = typeof body?.isoDate === 'string' ? body.isoDate : undefined;
+    dayOfWeek = typeof body?.dayOfWeek === 'string' ? body.dayOfWeek : undefined;
+    timeOfDay = typeof body?.timeOfDay === 'string' ? body.timeOfDay : undefined;
   } catch { /* no body or non-JSON — use default */ }
+
+  const schedulingContext = buildSchedulingContext(isoDate, dayOfWeek, timeOfDay);
 
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) {
@@ -296,6 +326,7 @@ Deno.serve(async (req: Request) => {
       irritabilityLevel,
       intake,
       profile.rehab_goal ?? '',
+      schedulingContext,
     );
 
     const validExerciseNames = buildExerciseNameSet(conditionModule);
@@ -437,7 +468,7 @@ Deno.serve(async (req: Request) => {
       supabase, user.id, parsed!, profile.rehab_goal,
       conditionModule.condition_id, conditionModule.version,
     );
-    await insertPhases(supabase, planId, parsed!.phases);
+    await insertPhases(supabase, planId, parsed!.phases, conditionModule.protocol.exercise_library);
 
     await supabase.from('profiles').update({ onboarding_step: 'complete' }).eq('user_id', user.id);
 

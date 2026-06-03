@@ -71,14 +71,15 @@ One Day Stronger is built for individuals rehabbing musculoskeletal injuries wit
 *V2: Backward/forward phase navigation. Natural language input field for plan questions and adjustments.*
 
 **Day-by-Day Recovery**
-- Each morning, the app prompts the user to log pain level (0–10) and soreness at the PHT site before generating a workout
+- When the user returns to the application, after a minimum of a day, the app prompts the user to log pain level (0–10) a the injury site before generating a workout
 - Based on check-in data, the app either generates the planned workout, a modified version, or a rest recommendation — with a plain-language explanation in each case
 - Workout detail includes exercise name, sets, reps, load, tempo, and rest intervals
 - **Edge case:** If a user skips the morning check-in and opens the workout directly, the app prompts check-in inline before surfacing the plan. If the app hasn't been opened in 3+ days, it prompts a re-check-in before resuming the plan as normal.
 
 **Track Progress**
 - After completing a workout, the user logs actual weight, reps completed, and any modifications made per exercise
-- User provides a subjective rating of overall session difficulty and how it felt
+- User provides a subjective rating of overall session difficulty, pain level, and an open text field to write any comments
+- App stores this information and uses it when regenerating the next workout
 - **Edge case:** If a user reports significant pain during a session (e.g., >5/10), the app flags this before allowing them to log completion and recommends rest or a plan review.
 
 *V2: Partial workout auto-save. Post-workout session summary card.*

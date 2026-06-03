@@ -21,7 +21,7 @@ import {
   type ActivePlan,
   type PlanPhaseWithExercises,
 } from '@/services/plans';
-import { notifyPlanChanged } from '@/lib/planEvents';
+import { notifyPlanChanged, onPlanChanged } from '@/lib/planEvents';
 import { useAuth } from '@/hooks/useAuth';
 
 // ─── Exercise accordion ───────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ function PhaseExerciseAccordion({ phase }: PhaseExerciseAccordionProps) {
         accessibilityLabel={open ? 'Collapse phase exercises' : 'Expand phase exercises'}
         accessibilityState={{ expanded: open }}
       >
-        <Text style={styles.exerciseAccordionTitle}>Phase exercises</Text>
+        <Text style={styles.exerciseAccordionTitle}>Sample workout</Text>
         {open ? (
           <CaretUp size={14} color={Colors.text.secondary} />
         ) : (
@@ -59,7 +59,7 @@ function PhaseExerciseAccordion({ phase }: PhaseExerciseAccordionProps) {
       {open && (
         <View style={styles.exerciseList}>
           {exercises.map((pe, ei) => {
-            const name = pe.name ?? pe.exercises?.name ?? 'Exercise';
+            const name = pe.name ?? 'Unknown exercise';
             const sets = pe.prescribed_sets ?? '?';
             const reps = pe.prescribed_reps ?? '';
             const load = pe.load_target ?? '';
@@ -111,7 +111,7 @@ function PhaseSection({ phase, isActive, isExpanded, onToggle, onStartHere }: Ph
 
   // Show the jump button on every phase EXCEPT the one currently active.
   const showJumpButton = !isActive;
-  const jumpLabel = isCompleted ? 'Go back to this phase' : "I'm already here";
+  const jumpLabel = isCompleted ? 'Go back to this phase' : "I'm here";
 
   return (
     <View style={[styles.phaseSection, isActive && styles.phaseSectionActive]}>
@@ -123,19 +123,19 @@ function PhaseSection({ phase, isActive, isExpanded, onToggle, onStartHere }: Ph
         accessibilityLabel={`${isExpanded ? 'Collapse' : 'Expand'} phase ${phase.phase_number}: ${phase.name}`}
         accessibilityState={{ expanded: isExpanded }}
       >
-        <PhaseBadge
-          phaseNumber={phase.phase_number}
-          phaseName={phase.name}
-          isRegressed={phase.status === 'regressed_from'}
-        />
-        <View style={styles.phaseHeaderRight}>
-          <Text style={[styles.statusLabel, { color: statusColor }]}>{statusLabel}</Text>
+        <View style={styles.phaseHeaderTop}>
+          <PhaseBadge
+            phaseNumber={phase.phase_number}
+            phaseName={phase.name}
+            isRegressed={phase.status === 'regressed_from'}
+          />
           {isExpanded ? (
             <CaretUp size={16} color={Colors.text.secondary} />
           ) : (
             <CaretDown size={16} color={Colors.text.secondary} />
           )}
         </View>
+        <Text style={[styles.statusLabel, { color: statusColor }]}>{statusLabel}</Text>
       </TouchableOpacity>
 
       {isExpanded && (
@@ -285,6 +285,12 @@ export default function PlanScreen() {
 
   useEffect(() => {
     loadPlan();
+  }, [loadPlan]);
+
+  // Re-fetch when any other part of the app triggers a plan change
+  // (e.g. profile screen calls revise-plan).
+  useEffect(() => {
+    return onPlanChanged(loadPlan);
   }, [loadPlan]);
 
   const togglePhase = (id: string) => {
@@ -457,17 +463,14 @@ const styles = StyleSheet.create({
     borderColor: Colors.primary,
   } as ViewStyle,
   phaseHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: 'column',
     padding: Spacing.space4,
     gap: Spacing.space2,
   } as ViewStyle,
-  phaseHeaderRight: {
+  phaseHeaderTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.space2,
-    flexShrink: 1,
+    justifyContent: 'space-between',
   } as ViewStyle,
   statusLabel: { ...Typography.label } as TextStyle,
   phaseBody: {
@@ -476,8 +479,8 @@ const styles = StyleSheet.create({
     gap: Spacing.space3,
   } as ViewStyle,
   phaseDescription: { ...Typography.body, color: Colors.text.secondary } as TextStyle,
-  criteriaRow: { flexDirection: 'row', gap: Spacing.space4 } as ViewStyle,
-  criteriaItem: { alignItems: 'center', gap: 2 } as ViewStyle,
+  criteriaRow: { flexDirection: 'row', justifyContent: 'space-between' } as ViewStyle,
+  criteriaItem: { flex: 1, alignItems: 'flex-start', gap: 2 } as ViewStyle,
   criteriaValue: { ...Typography.h3, color: Colors.text.primary } as TextStyle,
   criteriaLabel: { ...Typography.label, color: Colors.text.secondary } as TextStyle,
   startHereButton: { marginTop: Spacing.space2 } as ViewStyle,
@@ -492,10 +495,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: Spacing.space2,
   } as ViewStyle,
   exerciseAccordionTitle: {
     ...Typography.label,
     color: Colors.text.secondary,
+    flexShrink: 1,
   } as TextStyle,
   exerciseList: { gap: Spacing.space3, marginTop: Spacing.space3 } as ViewStyle,
   exerciseRow: {
