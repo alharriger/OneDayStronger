@@ -107,6 +107,25 @@ User reported seeing "Your plan has been updated" toast AND "You've advanced to 
 
 ---
 
+## P8 — Time-based exercise reps collide with "reps" unit labels
+
+**What went wrong:**
+PHT condition module exercises use `hold_seconds` in their prescription, which the generate-workout function stores as a string like `"45s"` or `"45 seconds"` in the `reps` field of `generated_workout_exercises`. Components that display prescription data appended " reps" unconditionally — producing broken text like "45s reps" or "45 seconds reps". Additionally, `reps_per_set` in `exercise_logs` may be empty even after a completed workout (the logging flow doesn't enforce per-set rep entry), so any completion summary that tries to total logged reps will silently get 0.
+
+**How it was diagnosed:**
+User reported reps showed as 0 on the completion screen and chip labels were wrong on workout cards. Traced: ExerciseCard prescription used `\`${exercise.reps} reps\`` unconditionally; completion view summed `reps_per_set` arrays which were empty. Inspected condition module seed — confirmed hold exercises use `hold_seconds`, not `reps`.
+
+**How to work going forward:**
+- Any component displaying a prescription `reps` value must detect time-based strings before appending units. Pattern:
+  ```typescript
+  const isTime = /\d+\s*(s|sec|seconds?)\b/i.test(reps);
+  const display = isTime ? reps.replace(/\s*seconds?\b/gi, 's') : `${reps} reps`;
+  ```
+- Reference implementations: `formatReps()` in `ExerciseCard.tsx`, `formatCompletedReps()` in `today.tsx`.
+- Never assume `reps_per_set` is populated — always fall back to `prescribedReps` when computing totals for completion summaries.
+
+---
+
 ## P4 — Passing an event type to a component that doesn't handle it causes a silent crash
 
 **What went wrong:**
