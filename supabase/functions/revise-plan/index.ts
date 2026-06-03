@@ -376,23 +376,41 @@ Deno.serve(async (req: Request) => {
 
     if (isMock) {
       console.log('[revise-plan] MOCK_LLM=true — returning mock revised plan');
-      // Build a mock response using the current active phase so the flow completes
+      // Carry exercises forward from original phases so generate-workout has data to work with
       const upcomingPhases = allPhases.filter((p: { status: string }) => p.status === 'active' || p.status === 'upcoming');
+
+      const phasesWithExercises = await Promise.all(
+        upcomingPhases.map(async (p: Record<string, unknown>) => {
+          const { data: exRows } = await supabase
+            .from('phase_exercises')
+            .select('name, prescribed_sets, prescribed_reps, load_target, tempo, rest_seconds, notes')
+            .eq('phase_id', p.id as string)
+            .order('order_index');
+
+          return {
+            phase_number: p.phase_number as number,
+            name: p.name as string,
+            description: (p.description as string) ?? '',
+            plain_language_summary: (p.plain_language_summary as string) ?? '',
+            estimated_duration_weeks: (p.estimated_duration_weeks as number) ?? 4,
+            progression_criteria: (p.progression_criteria as GeneratePlanResponse['phases'][0]['progression_criteria']) ?? { pain_threshold: 3, load_tolerance_pct: 80, consistency_pct: 70, window_days: 14 },
+            regression_criteria: (p.regression_criteria as GeneratePlanResponse['phases'][0]['regression_criteria']) ?? { pain_consecutive_sessions: 2, missed_sessions_window: 4 },
+            exercises: (exRows ?? []).map((e: Record<string, unknown>) => ({
+              name: e.name as string,
+              sets: e.prescribed_sets as number,
+              reps: e.prescribed_reps as string,
+              load_target: (e.load_target as string) ?? 'bodyweight',
+              tempo: (e.tempo as string) ?? 'controlled',
+              rest_seconds: e.rest_seconds as number,
+              notes: (e.notes as string) ?? '',
+            })),
+          };
+        })
+      );
+
       parsed = {
         plain_language_summary: `[Mock revision] Your plan has been updated to reflect your new pain baseline of ${injuryStatus.pain_level_baseline}/10. Continuing from Phase ${activePhase?.phase_number ?? 1}.`,
-        phases: upcomingPhases.map((p: Record<string, unknown>, i: number) => ({
-          phase_number: (p.phase_number as number),
-          name: p.name as string,
-          description: (p.description as string) ?? '',
-          plain_language_summary: (p.plain_language_summary as string) ?? '',
-          estimated_duration_weeks: (p.estimated_duration_weeks as number) ?? 4,
-          progression_criteria: (p.progression_criteria as GeneratePlanResponse['phases'][0]['progression_criteria']) ?? { pain_threshold: 3, load_tolerance_pct: 80, consistency_pct: 70, window_days: 14 },
-          regression_criteria: (p.regression_criteria as GeneratePlanResponse['phases'][0]['regression_criteria']) ?? { pain_consecutive_sessions: 2, missed_sessions_window: 4 },
-          exercises: [],
-        })),
-      };
-      if (parsed.phases.length === 0) {
-        parsed.phases = [{
+        phases: phasesWithExercises.length > 0 ? phasesWithExercises : [{
           phase_number: activePhase?.phase_number ?? 1,
           name: activePhase?.name ?? 'Current Phase',
           description: 'Mock revised phase',
@@ -401,8 +419,8 @@ Deno.serve(async (req: Request) => {
           progression_criteria: { pain_threshold: 3, load_tolerance_pct: 80, consistency_pct: 70, window_days: 14 },
           regression_criteria: { pain_consecutive_sessions: 2, missed_sessions_window: 4 },
           exercises: [],
-        }];
-      }
+        }],
+      };
       await logLlmCall({
         supabase, userId: user.id, edgeFunction: 'revise-plan',
         promptVersion: `${PROMPT_VERSION}-mock`,
