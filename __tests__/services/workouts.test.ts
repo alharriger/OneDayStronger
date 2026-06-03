@@ -4,6 +4,7 @@ import {
   getMostRecentWorkout,
   saveWorkoutLog,
   getWorkoutLog,
+  getWorkoutLogWithExercises,
 } from '@/services/workouts';
 import { createChain } from '../helpers/supabaseMock';
 
@@ -85,6 +86,40 @@ describe('workouts service', () => {
       mockedFrom.mockReturnValue(createChain({ data: log, error: null }));
       const result = await getWorkoutLog('session-1');
       expect(result).toEqual(log);
+    });
+  });
+
+  describe('getWorkoutLogWithExercises', () => {
+    it('returns null on error', async () => {
+      mockedFrom.mockReturnValue(createChain({ data: null, error: { message: 'not found' } }));
+      const result = await getWorkoutLogWithExercises('session-1');
+      expect(result).toBeNull();
+    });
+
+    it('returns workout log with nested exercise_logs on success', async () => {
+      const logWithExercises = {
+        id: 'log-1',
+        session_id: 'session-1',
+        completed_at: '2026-06-03T10:30:00Z',
+        difficulty_rating: 6,
+        pain_during_session: 2,
+        exercise_logs: [
+          {
+            id: 'el-1',
+            workout_log_id: 'log-1',
+            exercise_name: 'Nordic Curl',
+            sets_completed: 3,
+            reps_per_set: [12, 12, 10],
+            weight_per_set: null,
+            modifications: null,
+          },
+        ],
+      };
+      mockedFrom.mockReturnValue(createChain({ data: logWithExercises, error: null }));
+      const result = await getWorkoutLogWithExercises('session-1');
+      expect(result).toEqual(logWithExercises);
+      expect(result?.exercise_logs).toHaveLength(1);
+      expect(result?.exercise_logs[0].exercise_name).toBe('Nordic Curl');
     });
   });
 });

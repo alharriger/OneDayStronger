@@ -56,6 +56,7 @@ export const Colors = {
   primaryDark:   palette.deepDusk,
   terra:         palette.terra,
   moss:          palette.moss,
+  mossLight:     palette.mossLight,
 
   // ── Semantic ──
   semantic: {

@@ -26,19 +26,32 @@ import { useWorkoutLogging } from '@/hooks/useWorkoutLogging';
 interface ExerciseLogRowProps {
   exerciseName: string;
   prescribedSets: number;
+  prescribedReps: string | null;
   setsCompleted: number;
   onSetsChange: (v: number) => void;
+}
+
+/** Format prescription line: "3 sets × 8 reps" or "3 sets × 45s" */
+function formatPrescription(sets: number, reps: string | null): string {
+  if (!reps) return `${sets} sets`;
+  const isTime = /\d+\s*(s|sec|seconds?)\b/i.test(reps);
+  const repsStr = isTime ? reps.replace(/\s*seconds?\b/gi, 's') : `${reps} reps`;
+  return `${sets} sets × ${repsStr}`;
 }
 
 function ExerciseLogRow({
   exerciseName,
   prescribedSets,
+  prescribedReps,
   setsCompleted,
   onSetsChange,
 }: ExerciseLogRowProps) {
   return (
     <Card style={styles.exerciseCard}>
       <Text style={styles.exerciseName}>{exerciseName}</Text>
+      <Text style={styles.exercisePrescription}>
+        {formatPrescription(prescribedSets, prescribedReps)}
+      </Text>
       <View style={styles.setsRow}>
         <Text style={styles.setsLabel}>Sets completed</Text>
         <View style={styles.setsCounter}>
@@ -60,7 +73,7 @@ function ExerciseLogRow({
             +
           </Text>
         </View>
-        <Text style={styles.prescribed}>of {prescribedSets} prescribed</Text>
+        <Text style={styles.prescribed}>of {prescribedSets}</Text>
       </View>
     </Card>
   );
@@ -80,6 +93,7 @@ export default function LogWorkoutScreen() {
     exerciseId: string | null;
     exerciseName: string;
     prescribedSets: number;
+    prescribedReps: string | null;
   }> = React.useMemo(() => {
     try {
       return JSON.parse(params.exercisesJson ?? '[]');
@@ -124,6 +138,7 @@ export default function LogWorkoutScreen() {
                 key={`${ea.exerciseName}-${i}`}
                 exerciseName={ea.exerciseName}
                 prescribedSets={parsedExercises[i]?.prescribedSets ?? ea.setsCompleted}
+                prescribedReps={parsedExercises[i]?.prescribedReps ?? null}
                 setsCompleted={ea.setsCompleted}
                 onSetsChange={(v) =>
                   logging.setExerciseActual(i, { ...ea, setsCompleted: v })
@@ -241,7 +256,13 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.space3,
   } as TextStyle,
   exerciseCard: { marginBottom: Spacing.space3 } as ViewStyle,
-  exerciseName: { ...Typography.h3, color: Colors.text.primary, marginBottom: Spacing.space2 } as TextStyle,
+  exerciseName: { ...Typography.h3, color: Colors.text.primary, marginBottom: 2 } as TextStyle,
+  exercisePrescription: {
+    ...Typography.mono,
+    fontSize: 13,
+    color: Colors.text.secondary,
+    marginBottom: Spacing.space3,
+  } as TextStyle,
   setsRow: {
     flexDirection: 'row',
     alignItems: 'center',

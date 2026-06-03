@@ -13,9 +13,9 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
-import { getTodaySession, createSession } from '@/services/sessions';
+import { getTodaySession, createSession, getCompletionHistory } from '@/services/sessions';
 import { submitCheckIn, getTodayCheckIn } from '@/services/checkins';
-import { getWorkoutForSession, getMostRecentWorkout } from '@/services/workouts';
+import { getWorkoutForSession, getMostRecentWorkout, getWorkoutLogWithExercises } from '@/services/workouts';
 import { getPendingSafetyEvent } from '@/services/safetyEvents';
 import { getActivePhase } from '@/services/plans';
 import { onPlanChanged } from '@/lib/planEvents';
@@ -59,11 +59,30 @@ export interface TodayWorkout {
   fallbackBanner?: string;
 }
 
+export interface CompletedExerciseRow {
+  name: string;
+  setsCompleted: number | null;
+  totalReps: number | null;
+  prescribedSets: number | null;
+  prescribedReps: string | null;
+}
+
+export interface CompletedSessionData {
+  exercises: CompletedExerciseRow[];
+  totalReps: number;
+  durationMinutes: number | null;
+  painAtCheckin: number | null;
+  streakCount: number;
+  recentCompletedDates: string[];
+  nextWorkoutDate: string;
+}
+
 export interface TodayState {
   phase: TodayPhase;
   sessionId: string | null;
   checkInId: string | null;
   workout: TodayWorkout | null;
+  completedData: CompletedSessionData | null;
   safetyEventId: string | null;
   safetyDetails: string | null;
   error: string | null;
@@ -74,6 +93,27 @@ export interface TodayState {
   acknowledgeSafety: () => void;
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Extracts a rep count from a prescription string for fallback total-reps
+ * estimation when actual logs are unavailable.
+ * "12" → 12, "8-12" → 12 (upper bound), "8 each side" → 8
+ * Returns null for time-based strings like "30s" or "30 seconds".
+ */
+function parseRepsString(repsStr: string | null): number | null {
+  if (!repsStr) return null;
+  // Time-based: skip
+  if (/\d+\s*(s|sec|seconds|min|minutes)/i.test(repsStr)) return null;
+  // "X-Y" range → upper bound
+  const range = repsStr.match(/(\d+)\s*[-–]\s*(\d+)/);
+  if (range) return parseInt(range[2], 10);
+  // Simple number (possibly followed by text like "each side")
+  const simple = repsStr.match(/^(\d+)/);
+  if (simple) return parseInt(simple[1], 10);
+  return null;
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useTodayWorkout(): TodayState {
@@ -82,6 +122,7 @@ export function useTodayWorkout(): TodayState {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [checkInId, setCheckInId] = useState<string | null>(null);
   const [workout, setWorkout] = useState<TodayWorkout | null>(null);
+  const [completedData, setCompletedData] = useState<CompletedSessionData | null>(null);
   const [safetyEventId, setSafetyEventId] = useState<string | null>(null);
   const [safetyDetails, setSafetyDetails] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -98,10 +139,78 @@ export function useTodayWorkout(): TodayState {
     isInitializingRef.current = false;
     setPhase('loading');
     setWorkout(null);
+    setCompletedData(null);
     setSessionId(null);
     setCheckInId(null);
     setError(null);
     setIsRetryable(false);
+  }, []);
+
+  /**
+   * Fetches all data needed to render the WorkoutCompletedView.
+   * Called whenever initializeToday routes to workout_completed.
+   */
+  const loadCompletedData = useCallback(async (
+    sid: string,
+    uid: string,
+    painAtCheckin: number | null,
+    checkInTime: string | null,
+    workoutExercises: WorkoutExercise[],
+  ) => {
+    const [logResult, history] = await Promise.all([
+      getWorkoutLogWithExercises(sid),
+      getCompletionHistory(uid),
+    ]);
+
+    // Duration: check-in time → workout completion time (null if > 3 hours or missing)
+    let durationMinutes: number | null = null;
+    if (logResult?.completed_at && checkInTime) {
+      const diffMs = new Date(logResult.completed_at).getTime() - new Date(checkInTime).getTime();
+      const diffMin = diffMs / 60_000;
+      if (diffMin > 0 && diffMin <= 180) durationMinutes = Math.round(diffMin);
+    }
+
+    // Build exercise rows: match exercise_logs to prescribed exercises by name
+    const exerciseLogMap = new Map(
+      (logResult?.exercise_logs ?? []).map((el) => [el.exercise_name, el])
+    );
+
+    const exercises: CompletedExerciseRow[] = workoutExercises.map((prescribed) => {
+      const logged = exerciseLogMap.get(prescribed.exercise_name);
+      const repsArray = (logged?.reps_per_set ?? []) as number[];
+      const loggedTotalReps = repsArray.length > 0 ? repsArray.reduce((a, b) => a + b, 0) : null;
+
+      // Fallback: estimate reps from the prescription string (e.g. "12", "8-12")
+      const estimatedPerSet = parseRepsString(prescribed.reps);
+      const estimatedTotalReps =
+        loggedTotalReps == null && prescribed.sets && estimatedPerSet != null
+          ? prescribed.sets * estimatedPerSet
+          : null;
+
+      return {
+        name: prescribed.exercise_name,
+        setsCompleted: logged?.sets_completed ?? null,
+        totalReps: loggedTotalReps ?? estimatedTotalReps,
+        prescribedSets: prescribed.sets,
+        prescribedReps: prescribed.reps,
+      };
+    });
+
+    const totalReps = exercises.reduce((sum, ex) => sum + (ex.totalReps ?? 0), 0);
+
+    const nextDate = new Date();
+    nextDate.setDate(nextDate.getDate() + 2);
+    const nextWorkoutDate = nextDate.toISOString().split('T')[0];
+
+    setCompletedData({
+      exercises,
+      totalReps,
+      durationMinutes,
+      painAtCheckin,
+      streakCount: history.streakCount,
+      recentCompletedDates: history.recentCompletedDates,
+      nextWorkoutDate,
+    });
   }, []);
 
   const initializeToday = useCallback(async () => {
@@ -212,6 +321,7 @@ export function useTodayWorkout(): TodayState {
           }).catch(() => {});
           if (session.status === 'completed') {
             setPhase('workout_completed');
+            loadCompletedData(session.id, user.id, existingCheckIn.pain_level, existingCheckIn.checked_in_at, exercises).catch(() => {});
           } else {
             setPhase(existingWorkout.workout_type === 'rest_recommendation' ? 'rest_day' : 'workout_ready');
           }
@@ -223,16 +333,18 @@ export function useTodayWorkout(): TodayState {
         const cachedForToday = await getCachedWorkoutForSession(session.id)
           ?? await getCachedWorkoutForDate(today).catch(() => null);
         if (cachedForToday) {
+          const cachedExercises = JSON.parse(cachedForToday.exercises_json) as WorkoutExercise[];
           setWorkout({
             workoutId: cachedForToday.workout_id,
             workout_type: cachedForToday.workout_type,
             plain_language_explanation: cachedForToday.plain_language_explanation,
-            exercises: JSON.parse(cachedForToday.exercises_json) as WorkoutExercise[],
+            exercises: cachedExercises,
             isFallback: cachedForToday.is_fallback === 1,
             fallbackBanner: cachedForToday.fallback_banner ?? undefined,
           });
           if (session.status === 'completed') {
             setPhase('workout_completed');
+            loadCompletedData(session.id, user.id, existingCheckIn.pain_level, existingCheckIn.checked_in_at, cachedExercises).catch(() => {});
           } else {
             setPhase(cachedForToday.workout_type === 'rest_recommendation' ? 'rest_day' : 'workout_ready');
           }
@@ -417,6 +529,7 @@ export function useTodayWorkout(): TodayState {
     sessionId,
     checkInId,
     workout,
+    completedData,
     safetyEventId,
     safetyDetails,
     error,

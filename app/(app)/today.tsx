@@ -6,9 +6,12 @@ import {
   StyleSheet,
   ViewStyle,
   TextStyle,
+  TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { CalendarBlank, CheckCircle } from 'phosphor-react-native';
 import { Colors, Typography, Spacing } from '@/theme';
 import {
   Button,
@@ -18,7 +21,7 @@ import {
   SafetyAdvisoryModal,
   EvolutionEventBanner,
 } from '@/components/ui';
-import { useTodayWorkout } from '@/hooks/useTodayWorkout';
+import { useTodayWorkout, type CompletedSessionData } from '@/hooks/useTodayWorkout';
 import { useAuth } from '@/hooks/useAuth';
 import { acknowledgeSafetyEvent } from '@/services/safetyEvents';
 import { getUnseenEvents, markEventSeen } from '@/services/evolution';
@@ -82,17 +85,157 @@ function RestDayCard({ explanation }: RestDayCardProps) {
   );
 }
 
-// ─── Workout completed card ───────────────────────────────────────────────────
+// ─── Workout completed view ───────────────────────────────────────────────────
 
-interface WorkoutCompletedCardProps {
-  explanation: string;
+/** Format prescribed reps/seconds for the completion summary. */
+function formatCompletedReps(reps: string | null): string {
+  if (!reps) return '–';
+  if (/\d+\s*(s|sec|seconds?)\b/i.test(reps)) {
+    return reps.replace(/\s*seconds?\b/gi, 's');
+  }
+  return `${reps} reps`;
 }
 
-function WorkoutCompletedCard({ explanation }: WorkoutCompletedCardProps) {
+interface WorkoutCompletedViewProps {
+  completedData: CompletedSessionData | null;
+}
+
+function StreakBar({ recentCompletedDates, today }: { recentCompletedDates: string[]; today: string }) {
+  const completedSet = new Set(recentCompletedDates);
+  const slots: string[] = [];
+  const cursor = new Date(today);
+  // Build 14 slots ending at today (oldest first)
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    slots.push(d.toISOString().split('T')[0]);
+  }
   return (
-    <View style={styles.completedCard}>
-      <Text style={styles.completedTitle}>Workout complete</Text>
-      <Text style={styles.completedBody}>{explanation}</Text>
+    <View style={completedStyles.streakBar}>
+      {slots.map((date) => {
+        const isToday = date === today;
+        const isDone = completedSet.has(date);
+        const bg = isToday
+          ? Colors.moss
+          : isDone
+          ? Colors.mossLight
+          : Colors.bg.surfaceStrong;
+        return <View key={date} style={[completedStyles.streakSegment, { backgroundColor: bg }]} />;
+      })}
+    </View>
+  );
+}
+
+function StatTile({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={completedStyles.statTile}>
+      <Text style={completedStyles.statValue}>{value}</Text>
+      <Text style={completedStyles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function WorkoutCompletedView({ completedData }: WorkoutCompletedViewProps) {
+  const today = new Date().toISOString().split('T')[0];
+  const dateLabel = new Date().toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).toUpperCase().replace(',', ' ·');
+
+  const durationStr = completedData?.durationMinutes != null
+    ? `${completedData.durationMinutes}m`
+    : '–';
+  const exercisesStr = completedData ? String(completedData.exercises.length) : '–';
+  const painStr = completedData?.painAtCheckin != null
+    ? String(completedData.painAtCheckin)
+    : '–';
+
+  let nextLabel = 'Coming up';
+  let nextDateStr = '';
+  if (completedData?.nextWorkoutDate) {
+    nextDateStr = new Date(completedData.nextWorkoutDate + 'T12:00:00').toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    });
+    nextLabel = 'In 2 days';
+  }
+
+  return (
+    <View style={completedStyles.container}>
+      {/* 1. Date meta row */}
+      <Text style={completedStyles.dateMeta}>{dateLabel}</Text>
+
+      {/* 2. Eyebrow */}
+      <View style={completedStyles.eyebrowRow}>
+        <View style={completedStyles.eyebrowDot} />
+        <Text style={completedStyles.eyebrowText}>Workout complete</Text>
+      </View>
+
+      {/* 3. Hero title */}
+      <Text style={completedStyles.heroTitle}>Today, done.</Text>
+
+      {/* 4. Streak section */}
+      <View style={completedStyles.section}>
+        <View style={completedStyles.streakHeader}>
+          <Text style={completedStyles.sectionEyebrow}>Streak</Text>
+          <Text style={completedStyles.streakCount}>
+            {completedData?.streakCount ?? '–'}
+            <Text style={completedStyles.streakUnit}> days</Text>
+          </Text>
+        </View>
+        <StreakBar
+          recentCompletedDates={completedData?.recentCompletedDates ?? [today]}
+          today={today}
+        />
+      </View>
+
+      {/* 5. Stat strip */}
+      <View style={completedStyles.statStrip}>
+        <StatTile label="Duration" value={durationStr} />
+        <View style={completedStyles.statDivider} />
+        <StatTile label="Exercises" value={exercisesStr} />
+        <View style={completedStyles.statDivider} />
+        <StatTile label="Pain" value={painStr} />
+      </View>
+
+      {/* 6. Exercise list */}
+      {completedData && completedData.exercises.length > 0 && (
+        <View style={completedStyles.section}>
+          <Text style={completedStyles.sectionEyebrow}>What you did</Text>
+          {completedData.exercises.map((ex, i) => (
+            <View key={ex.name} style={completedStyles.exerciseRow}>
+              <Text style={completedStyles.exerciseIndex}>{i + 1}</Text>
+              <View style={completedStyles.exerciseMeta}>
+                <Text style={completedStyles.exerciseName}>{ex.name}</Text>
+                <Text style={completedStyles.exerciseDetail}>
+                  {`${ex.setsCompleted ?? 0} sets × ${formatCompletedReps(ex.prescribedReps)}`}
+                </Text>
+              </View>
+              <CheckCircle size={20} color={Colors.moss} weight="fill" />
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* 7. Next workout row */}
+      <View style={completedStyles.nextRow}>
+        <CalendarBlank size={18} color={Colors.text.secondary} />
+        <View style={completedStyles.nextMeta}>
+          <Text style={completedStyles.nextLabel}>{nextLabel}</Text>
+          {nextDateStr ? <Text style={completedStyles.nextDate}>{nextDateStr}</Text> : null}
+        </View>
+      </View>
+
+      {/* 8. Set a reminder CTA */}
+      <TouchableOpacity
+        style={completedStyles.reminderButton}
+        onPress={() => Alert.alert('Coming soon', 'Workout reminders will be available in a future update.')}
+        activeOpacity={0.8}
+      >
+        <Text style={completedStyles.reminderButtonText}>Set a reminder</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -249,6 +392,7 @@ export default function TodayScreen() {
                 exerciseId: null,
                 exerciseName: e.exercise_name,
                 prescribedSets: e.sets,
+                prescribedReps: e.reps ?? null,
               }));
               router.push({
                 pathname: '/(app)/log-workout',
@@ -263,14 +407,7 @@ export default function TodayScreen() {
         );
 
       case 'workout_completed':
-        return (
-          <WorkoutCompletedCard
-            explanation={
-              today.workout?.plain_language_explanation ??
-              'You completed your workout today. Great work!'
-            }
-          />
-        );
+        return <WorkoutCompletedView completedData={today.completedData} />;
 
       case 'rest_day':
         return (
@@ -303,11 +440,11 @@ export default function TodayScreen() {
     }
   };
 
-  const todayLabel = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
+  const monoDateLabel = new Date().toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
     day: 'numeric',
-  });
+  }).toUpperCase().replace(',', ' ·');
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -333,10 +470,12 @@ export default function TodayScreen() {
           />
         )}
 
-        <View style={styles.header}>
-          <Text style={styles.dateLabel}>{todayLabel}</Text>
-          <Text style={styles.screenTitle}>Today</Text>
-        </View>
+        {today.phase !== 'workout_completed' && today.phase !== 'loading' && (
+          <View style={styles.header}>
+            <Text style={styles.dateMeta}>{monoDateLabel}</Text>
+            <Text style={styles.screenHero}>Today</Text>
+          </View>
+        )}
 
         {renderContent()}
       </ScrollView>
@@ -372,16 +511,22 @@ const styles = StyleSheet.create({
   header: {
     paddingTop: Spacing.space4,
     marginBottom: Spacing.space5,
+    gap: Spacing.space2,
   } as ViewStyle,
 
-  dateLabel: {
-    ...Typography.label,
-    color: Colors.text.secondary,
-    marginBottom: Spacing.space1,
+  dateMeta: {
+    ...Typography.mono,
+    fontSize: 11,
+    color: Colors.text.muted,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
   } as TextStyle,
 
-  screenTitle: {
-    ...Typography.h1,
+  screenHero: {
+    fontFamily: 'Lato_900Black',
+    fontSize: 40,
+    lineHeight: 44,
+    letterSpacing: -1.2,
     color: Colors.text.primary,
   } as TextStyle,
 
@@ -430,26 +575,6 @@ const styles = StyleSheet.create({
   } as TextStyle,
 
   restBody: {
-    ...Typography.body,
-    color: Colors.text.secondary,
-  } as TextStyle,
-
-  // Workout completed
-  completedCard: {
-    backgroundColor: Colors.bg.surfaceRaised,
-    borderRadius: 12,
-    padding: Spacing.space5,
-    gap: Spacing.space3,
-    borderLeftWidth: 4,
-    borderLeftColor: Colors.semantic.good,
-  } as ViewStyle,
-
-  completedTitle: {
-    ...Typography.h3,
-    color: Colors.text.primary,
-  } as TextStyle,
-
-  completedBody: {
     ...Typography.body,
     color: Colors.text.secondary,
   } as TextStyle,
@@ -511,4 +636,189 @@ const styles = StyleSheet.create({
     minWidth: 160,
   } as ViewStyle,
 
+});
+
+// ─── Workout completed styles ─────────────────────────────────────────────────
+
+const completedStyles = StyleSheet.create({
+  container: {
+    gap: Spacing.space5,
+  } as ViewStyle,
+
+  dateMeta: {
+    ...Typography.mono,
+    fontSize: 11,
+    color: Colors.text.muted,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  } as TextStyle,
+
+  eyebrowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.space2,
+    marginTop: -Spacing.space2,
+  } as ViewStyle,
+
+  eyebrowDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+    backgroundColor: Colors.moss,
+  } as ViewStyle,
+
+  eyebrowText: {
+    ...Typography.eyebrow,
+    color: Colors.moss,
+  } as TextStyle,
+
+  heroTitle: {
+    fontFamily: 'Lato_900Black',
+    fontSize: 40,
+    lineHeight: 44,
+    letterSpacing: -1.2,
+    color: Colors.text.primary,
+    marginTop: -Spacing.space1,
+  } as TextStyle,
+
+  // Streak
+  section: {
+    gap: Spacing.space3,
+  } as ViewStyle,
+
+  sectionEyebrow: {
+    ...Typography.eyebrow,
+    color: Colors.text.muted,
+  } as TextStyle,
+
+  streakHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+  } as ViewStyle,
+
+  streakCount: {
+    ...Typography.stat,
+    color: Colors.text.primary,
+  } as TextStyle,
+
+  streakUnit: {
+    ...Typography.bodySmall,
+    color: Colors.text.secondary,
+  } as TextStyle,
+
+  streakBar: {
+    flexDirection: 'row',
+    gap: 3,
+  } as ViewStyle,
+
+  streakSegment: {
+    flex: 1,
+    height: 8,
+    borderRadius: 2,
+  } as ViewStyle,
+
+  // Stat strip
+  statStrip: {
+    flexDirection: 'row',
+    backgroundColor: Colors.bg.surface,
+    borderRadius: 10,
+    padding: Spacing.space4,
+    alignItems: 'center',
+  } as ViewStyle,
+
+  statTile: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  } as ViewStyle,
+
+  statValue: {
+    ...Typography.stat,
+    color: Colors.text.primary,
+  } as TextStyle,
+
+  statLabel: {
+    ...Typography.eyebrow,
+    color: Colors.text.muted,
+    fontSize: 9,
+  } as TextStyle,
+
+  statDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: Colors.border.faint,
+  } as ViewStyle,
+
+  // Exercise list
+  exerciseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.space3,
+    paddingVertical: Spacing.space2,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border.faint,
+  } as ViewStyle,
+
+  exerciseIndex: {
+    ...Typography.mono,
+    fontSize: 11,
+    color: Colors.text.muted,
+    width: 18,
+    textAlign: 'center',
+  } as TextStyle,
+
+  exerciseMeta: {
+    flex: 1,
+    gap: 2,
+  } as ViewStyle,
+
+  exerciseName: {
+    ...Typography.h3,
+    color: Colors.text.primary,
+  } as TextStyle,
+
+  exerciseDetail: {
+    ...Typography.bodySmall,
+    color: Colors.text.secondary,
+  } as TextStyle,
+
+  // Next workout
+  nextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.space3,
+    paddingVertical: Spacing.space3,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border.faint,
+  } as ViewStyle,
+
+  nextMeta: {
+    flex: 1,
+  } as ViewStyle,
+
+  nextLabel: {
+    ...Typography.label,
+    color: Colors.text.muted,
+  } as TextStyle,
+
+  nextDate: {
+    ...Typography.body,
+    color: Colors.text.primary,
+    marginTop: 2,
+  } as TextStyle,
+
+  // Reminder CTA
+  reminderButton: {
+    borderWidth: 1,
+    borderColor: Colors.border.default,
+    borderRadius: 8,
+    paddingVertical: Spacing.space3,
+    alignItems: 'center',
+  } as ViewStyle,
+
+  reminderButtonText: {
+    ...Typography.buttonLabel,
+    color: Colors.text.secondary,
+  } as TextStyle,
 });
