@@ -6,7 +6,7 @@ import { Colors, Typography, Spacing, getPainColor } from '@/theme';
 interface PainScaleProps {
   value: number;
   onValueChange: (value: number) => void;
-  label: string;
+  label?: string;
   minLabel?: string;
   maxLabel?: string;
   min?: number;
@@ -34,7 +34,7 @@ export function PainScale({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>{label}</Text>
+      {label ? <Text style={styles.label}>{label}</Text> : null}
 
       {/* Value display */}
       <View style={styles.valueRow}>

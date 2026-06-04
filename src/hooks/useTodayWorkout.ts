@@ -91,6 +91,7 @@ export interface TodayState {
   submitCheckIn: (painLevel: number, sorenessLevel: number) => Promise<void>;
   retryWorkoutGeneration: () => Promise<void>;
   acknowledgeSafety: () => void;
+  requestWorkoutUpdate: (type: 'advance' | 'phase_back' | 'other', note?: string) => Promise<void>;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

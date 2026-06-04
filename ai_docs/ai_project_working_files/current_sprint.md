@@ -94,9 +94,31 @@ override_note   text nullable
 **Status:** ✅ COMPLETE — covered by G1-G3 + A2.
 
 ### B5. UI design consistency pass — all screens to match completed workout page
-**What:** The completed workout screen (WorkoutCompletedView) established a refined visual language: mono date header, Lato 900 hero title, section eyebrows in caps, structured stat strips, left-stripe cards. All other app screens (Today check-in, Today workout view, Plan, Log Workout, onboarding) should be audited and updated to match this design language for a cohesive first-use experience.
-**Scope:** Audit each screen against the completed workout design reference. Apply consistent header pattern (mono date + hero title), typography scale, color token usage, and card/section structure. No new components unless truly necessary — update existing styles.
-**Constraint:** Do screens one at a time; each screen update is its own commit. Verify on device before moving to the next.
+**What:** Apply a consistent visual language across every screen using new designs created in Claude Design. Implement one group at a time; each item is its own commit, verified on device before moving to the next. Designs will be shared by the user before each group starts.
+
+**Status:** Waiting for Today page designs. All other groups blocked until Today group is complete and the design language is established.
+
+#### B5-T: Today Screen (5 items — designs incoming)
+- **B5-T1: Check-in state** — check-in widget, pain/soreness sliders, submit button
+- **B5-T2: Generating state** — loading spinner / generating workout screen
+- **B5-T3: Workout display (workout_ready)** — explanation card, exercise cards, start button, update workout row
+- **B5-T4: Log workout screen (in-progress)** — exercise rows, set/rep logging inputs, submit flow
+- **B5-T5: Post-workout meters** — difficulty rating + pain-during-session UI on the log-workout screen
+
+#### B5-P: Plan Pages (2 items)
+- **B5-P1: Plan page** — phase cards, accordion, phase badges, criteria row, jump UI
+- **B5-P2: Post-onboarding plan preview** — the plan summary screen shown immediately after plan generation during onboarding
+
+#### B5-O: Onboarding Flow (3 items)
+- **B5-O1: Welcome / landing page** — the entry point before sign-up/sign-in
+- **B5-O2: Intake pages 1–3** — first half of intake questions (injury description, onset, mechanism)
+- **B5-O3: Intake pages 4–6 + plan generation** — second half of intake + the generating/loading state during plan creation
+
+*Note: B5-O overlaps with B6 (pill selection). Implement B5-O first for visual design, then B6 for interaction redesign — or combine if designs already show pill selectors.*
+
+#### B5-S: Supporting Screens (2 items)
+- **B5-S1: Profile page** — user profile, injury status update, settings
+- **B5-S2: History page** — ⚠️ may not exist yet; confirm whether this is a new screen or an existing one. If new, scope includes creating the screen and its route before applying the design.
 
 ### B6. Intake/onboarding flow: replace open text fields with pill selection
 **What:** The current onboarding uses open text inputs for fields that have a known answer set (e.g. injury mechanism, activity level, goals). Replace these with tappable pill/chip selectors so the user never types in a free-text field unless the answer genuinely can't be enumerated.

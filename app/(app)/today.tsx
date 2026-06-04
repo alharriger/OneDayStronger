@@ -12,11 +12,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { CalendarBlank, CheckCircle } from 'phosphor-react-native';
-import { Colors, Typography, Spacing } from '@/theme';
+import { Colors, Typography, Spacing, FontFamily } from '@/theme';
 import {
   Button,
   PainScale,
-  ExerciseCard,
+  PreWorkoutRow,
   LoadingState,
   SafetyAdvisoryModal,
   EvolutionEventBanner,
@@ -40,31 +40,35 @@ function CheckInWidget({ onSubmit }: CheckInWidgetProps) {
 
   return (
     <View style={styles.checkInContainer}>
+      <Text style={styles.sectionEyebrow}>Check in</Text>
       <Text style={styles.sectionTitle}>How are you feeling today?</Text>
       <Text style={styles.sectionSubtitle}>
         Rate your pain and soreness at the hamstring attachment site.
       </Text>
 
-      <View style={styles.scaleRow}>
-        <Text style={styles.scaleLabel}>Pain</Text>
+      <View style={styles.scaleBlock}>
+        <Text style={styles.scaleEyebrow}>Pain</Text>
         <PainScale
           value={pain}
           onValueChange={setPain}
-          accessibilityLabel="Pain level"
+          minLabel="0  No pain"
+          maxLabel="10  Worst pain"
         />
       </View>
 
-      <View style={styles.scaleRow}>
-        <Text style={styles.scaleLabel}>Soreness</Text>
+      <View style={styles.scaleBlock}>
+        <Text style={styles.scaleEyebrow}>Soreness</Text>
         <PainScale
           value={soreness}
           onValueChange={setSoreness}
-          accessibilityLabel="Soreness level"
+          minLabel="0  No soreness"
+          maxLabel="10  Very sore"
         />
       </View>
 
       <Button
         label="Generate my workout"
+        variant="hero"
         onPress={() => onSubmit(pain, soreness)}
         style={styles.checkInButton}
       />
@@ -105,7 +109,6 @@ interface WorkoutCompletedViewProps {
 function StreakBar({ recentCompletedDates, today }: { recentCompletedDates: string[]; today: string }) {
   const completedSet = new Set(recentCompletedDates);
   const slots: string[] = [];
-  const cursor = new Date(today);
   // Build 14 slots ending at today (oldest first)
   for (let i = 13; i >= 0; i--) {
     const d = new Date(today);
@@ -153,8 +156,8 @@ function WorkoutCompletedView({ completedData }: WorkoutCompletedViewProps) {
     ? String(completedData.painAtCheckin)
     : '–';
 
-  let nextLabel = 'Coming up';
   let nextDateStr = '';
+  let nextLabel = 'Coming up';
   if (completedData?.nextWorkoutDate) {
     nextDateStr = new Date(completedData.nextWorkoutDate + 'T12:00:00').toLocaleDateString('en-US', {
       weekday: 'long',
@@ -283,26 +286,36 @@ function WorkoutDisplay({
         </View>
       )}
 
-      <Text style={styles.explanationText}>{explanation}</Text>
+      {/* Explanation card */}
+      <View style={styles.explanationCard}>
+        <Text style={styles.explanationText}>{explanation}</Text>
+      </View>
 
-      {exercises.map((ex, i) => (
-        <ExerciseCard
-          key={`${ex.exercise_name}-${i}`}
-          exercise={{
-            name: ex.exercise_name,
-            sets: ex.sets,
-            reps: ex.reps,
-            load: ex.load,
-            tempo: ex.tempo,
-            restSeconds: ex.rest_seconds,
-            notes: ex.notes || null,
-            videoUrl: null,
-          }}
-        />
-      ))}
+      {/* Exercise list */}
+      <View style={styles.exerciseSection}>
+        <View style={styles.exerciseSectionHeader}>
+          <Text style={styles.exerciseSectionEyebrow}>Today's workout</Text>
+          <Text style={styles.exerciseCount}>{exercises.length} exercises</Text>
+        </View>
+        <View style={styles.exerciseList}>
+          {exercises.map((ex, i) => (
+            <PreWorkoutRow
+              key={`${ex.exercise_name}-${i}`}
+              index={i + 1}
+              name={ex.exercise_name}
+              sets={ex.sets}
+              reps={ex.reps}
+              load={ex.load || null}
+              restSeconds={ex.rest_seconds || null}
+              notes={ex.notes || null}
+            />
+          ))}
+        </View>
+      </View>
 
       <Button
         label="Start workout"
+        variant="hero"
         onPress={onStartWorkout}
         style={styles.startButton}
       />
@@ -337,7 +350,6 @@ export default function TodayScreen() {
   }, [today.phase]);
 
   // Load unseen evolution events when the phase changes to any visible state.
-  // 'generating' is included so the banner appears alongside the generating spinner.
   const BANNER_EVENT_TYPES = ['progression', 'regression', 'hold', 'plan_revised'] as const;
   type BannerEventType = typeof BANNER_EVENT_TYPES[number];
 
@@ -355,7 +367,7 @@ export default function TodayScreen() {
       if (bannerEvent) {
         setEvolutionBanner({
           eventType: bannerEvent.event_type as BannerEventType,
-          rationale: bannerEvent.rationale,
+          rationale: bannerEvent.rationale ?? '',
           eventId: bannerEvent.id,
         });
       }
@@ -431,7 +443,6 @@ export default function TodayScreen() {
         );
 
       case 'safety_advisory':
-        // Rendered via modal; show a placeholder while it loads
         return <LoadingState message="Loading safety advisory…" />;
 
       case 'error':
@@ -538,7 +549,7 @@ const styles = StyleSheet.create({
   } as ViewStyle,
 
   dateMeta: {
-    ...Typography.mono,
+    fontFamily: FontFamily.mono,
     fontSize: 11,
     color: Colors.text.muted,
     letterSpacing: 0.8,
@@ -546,17 +557,24 @@ const styles = StyleSheet.create({
   } as TextStyle,
 
   screenHero: {
-    fontFamily: 'Lato_900Black',
+    fontFamily: FontFamily.black,
     fontSize: 40,
     lineHeight: 44,
     letterSpacing: -1.2,
     color: Colors.text.primary,
   } as TextStyle,
 
-  // Check-in
+  // ── Check-in ──────────────────────────────────────────────────────────────
+
   checkInContainer: {
-    gap: Spacing.space4,
+    gap: Spacing.space5,
   } as ViewStyle,
+
+  sectionEyebrow: {
+    ...Typography.eyebrow,
+    color: Colors.text.muted,
+    marginBottom: -Spacing.space3,
+  } as TextStyle,
 
   sectionTitle: {
     ...Typography.h2,
@@ -566,15 +584,15 @@ const styles = StyleSheet.create({
   sectionSubtitle: {
     ...Typography.body,
     color: Colors.text.secondary,
-    marginTop: -Spacing.space2,
+    marginTop: -Spacing.space3,
   } as TextStyle,
 
-  scaleRow: {
+  scaleBlock: {
     gap: Spacing.space2,
   } as ViewStyle,
 
-  scaleLabel: {
-    ...Typography.label,
+  scaleEyebrow: {
+    ...Typography.eyebrow,
     color: Colors.text.secondary,
   } as TextStyle,
 
@@ -582,14 +600,16 @@ const styles = StyleSheet.create({
     marginTop: Spacing.space2,
   } as ViewStyle,
 
-  // Rest day
+  // ── Rest day ──────────────────────────────────────────────────────────────
+
   restCard: {
     backgroundColor: Colors.bg.surfaceRaised,
-    borderRadius: 12,
-    padding: Spacing.space5,
-    gap: Spacing.space3,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
     borderLeftWidth: 4,
     borderLeftColor: Colors.semantic.warning,
+    padding: Spacing.space5,
+    gap: Spacing.space3,
   } as ViewStyle,
 
   restTitle: {
@@ -602,14 +622,14 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
   } as TextStyle,
 
-  // Workout
+  // ── Workout display ───────────────────────────────────────────────────────
+
   workoutContainer: {
-    gap: Spacing.space4,
+    gap: Spacing.space5,
   } as ViewStyle,
 
   fallbackBanner: {
     backgroundColor: Colors.semantic.warning + '22',
-    borderRadius: 8,
     padding: Spacing.space3,
     borderLeftWidth: 3,
     borderLeftColor: Colors.semantic.warning,
@@ -623,7 +643,6 @@ const styles = StyleSheet.create({
   modifiedBadge: {
     alignSelf: 'flex-start',
     backgroundColor: Colors.semantic.warning + '22',
-    borderRadius: 6,
     paddingVertical: 4,
     paddingHorizontal: Spacing.space3,
   } as ViewStyle,
@@ -633,26 +652,65 @@ const styles = StyleSheet.create({
     color: Colors.semantic.warning,
   } as TextStyle,
 
+  explanationCard: {
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.primary,
+    padding: Spacing.space4,
+  } as ViewStyle,
+
   explanationText: {
     ...Typography.body,
     color: Colors.text.secondary,
   } as TextStyle,
 
+  exerciseSection: {
+    gap: 0,
+  } as ViewStyle,
+
+  exerciseSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    paddingBottom: Spacing.space3,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border.strong,
+  } as ViewStyle,
+
+  exerciseSectionEyebrow: {
+    ...Typography.eyebrow,
+    color: Colors.text.muted,
+  } as TextStyle,
+
+  exerciseCount: {
+    fontFamily: FontFamily.mono,
+    fontSize: 11,
+    color: Colors.text.muted,
+    letterSpacing: 0.4,
+  } as TextStyle,
+
+  exerciseList: {
+    // rows have their own bottom borders
+  } as ViewStyle,
+
   startButton: {
     marginTop: Spacing.space2,
   } as ViewStyle,
+
   updateWorkoutRow: {
     alignItems: 'center',
     paddingVertical: Spacing.space3,
-    marginTop: Spacing.space1,
   } as ViewStyle,
+
   updateWorkoutText: {
     ...Typography.label,
     color: Colors.text.secondary,
     textDecorationLine: 'underline',
   } as TextStyle,
 
-  // Error
+  // ── Error ─────────────────────────────────────────────────────────────────
+
   errorContainer: {
     gap: Spacing.space4,
     alignItems: 'center',
@@ -668,7 +726,6 @@ const styles = StyleSheet.create({
   retryButton: {
     minWidth: 160,
   } as ViewStyle,
-
 });
 
 // ─── Workout completed styles ─────────────────────────────────────────────────
@@ -679,7 +736,7 @@ const completedStyles = StyleSheet.create({
   } as ViewStyle,
 
   dateMeta: {
-    ...Typography.mono,
+    fontFamily: FontFamily.mono,
     fontSize: 11,
     color: Colors.text.muted,
     letterSpacing: 0.8,
@@ -696,7 +753,6 @@ const completedStyles = StyleSheet.create({
   eyebrowDot: {
     width: 10,
     height: 10,
-    borderRadius: 2,
     backgroundColor: Colors.moss,
   } as ViewStyle,
 
@@ -706,7 +762,7 @@ const completedStyles = StyleSheet.create({
   } as TextStyle,
 
   heroTitle: {
-    fontFamily: 'Lato_900Black',
+    fontFamily: FontFamily.black,
     fontSize: 40,
     lineHeight: 44,
     letterSpacing: -1.2,
@@ -714,7 +770,6 @@ const completedStyles = StyleSheet.create({
     marginTop: -Spacing.space1,
   } as TextStyle,
 
-  // Streak
   section: {
     gap: Spacing.space3,
   } as ViewStyle,
@@ -748,14 +803,13 @@ const completedStyles = StyleSheet.create({
   streakSegment: {
     flex: 1,
     height: 8,
-    borderRadius: 2,
   } as ViewStyle,
 
-  // Stat strip
   statStrip: {
     flexDirection: 'row',
     backgroundColor: Colors.bg.surface,
-    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
     padding: Spacing.space4,
     alignItems: 'center',
   } as ViewStyle,
@@ -783,7 +837,6 @@ const completedStyles = StyleSheet.create({
     backgroundColor: Colors.border.faint,
   } as ViewStyle,
 
-  // Exercise list
   exerciseRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -794,7 +847,7 @@ const completedStyles = StyleSheet.create({
   } as ViewStyle,
 
   exerciseIndex: {
-    ...Typography.mono,
+    fontFamily: FontFamily.mono,
     fontSize: 11,
     color: Colors.text.muted,
     width: 18,
@@ -816,7 +869,6 @@ const completedStyles = StyleSheet.create({
     color: Colors.text.secondary,
   } as TextStyle,
 
-  // Next workout
   nextRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -841,11 +893,9 @@ const completedStyles = StyleSheet.create({
     marginTop: 2,
   } as TextStyle,
 
-  // Reminder CTA
   reminderButton: {
     borderWidth: 1,
     borderColor: Colors.border.default,
-    borderRadius: 8,
     paddingVertical: Spacing.space3,
     alignItems: 'center',
   } as ViewStyle,

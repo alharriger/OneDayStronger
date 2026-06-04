@@ -20,10 +20,15 @@ export default function AppLayout() {
           backgroundColor: Colors.bg.base,
           borderTopColor: Colors.border.strong,
           borderTopWidth: 1,
-          height: 56,
+          height: 76,
+        },
+        tabBarItemStyle: {
+          paddingTop: 14,
+          paddingBottom: 18,
         },
         tabBarLabelStyle: {
           ...Typography.label,
+          marginTop: 4,
         },
       }}
     >
@@ -59,6 +64,12 @@ export default function AppLayout() {
         name="log-workout"
         options={{
           href: null, // hidden from tab bar; reached via router.push
+        }}
+      />
+      <Tabs.Screen
+        name="post-workout-checkin"
+        options={{
+          href: null, // hidden from tab bar; reached via router.push from log-workout
         }}
       />
     </Tabs>

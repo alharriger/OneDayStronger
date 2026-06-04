@@ -223,7 +223,6 @@ export default function ProfileScreen() {
                   setPainBaseline(v);
                   setHasChanges(true);
                 }}
-                accessibilityLabel="Pain baseline"
               />
 
               <Text style={[styles.fieldLabel, { marginTop: Spacing.space4 }]}>
