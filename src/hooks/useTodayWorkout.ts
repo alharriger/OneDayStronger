@@ -17,7 +17,7 @@ import { getTodaySession, createSession, getCompletionHistory } from '@/services
 import { submitCheckIn, getTodayCheckIn } from '@/services/checkins';
 import { getWorkoutForSession, getMostRecentWorkout, getWorkoutLogWithExercises } from '@/services/workouts';
 import { getPendingSafetyEvent } from '@/services/safetyEvents';
-import { getActivePhase } from '@/services/plans';
+import { getActivePhase, getActivePlan } from '@/services/plans';
 import { onPlanChanged } from '@/lib/planEvents';
 import {
   cacheWorkout,
@@ -367,7 +367,16 @@ export function useTodayWorkout(): TodayState {
     }
   }, [user]);
 
-  const generateWorkout = useCallback(async (sid: string, cid: string, uid: string) => {
+  const generateWorkout = useCallback(async (
+    sid: string,
+    cid: string,
+    uid: string,
+    options?: {
+      overridePhaseId?: string;
+      overrideNote?: string;
+      overrideType?: 'advance' | 'phase_back' | 'other';
+    },
+  ) => {
     setPhase('generating');
     try {
       const now = new Date();
@@ -379,6 +388,7 @@ export function useTodayWorkout(): TodayState {
           isoDate: now.toISOString().split('T')[0],
           dayOfWeek: now.toLocaleDateString('en-US', { weekday: 'long' }),
           timeOfDay: h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening',
+          ...options,
         },
       });
 
@@ -524,6 +534,44 @@ export function useTodayWorkout(): TodayState {
     setPhase('check_in');
   }, []);
 
+  /**
+   * Regenerates today's workout with one of three override types:
+   *  - 'advance'    : uses next-phase exercises (no permanent phase change)
+   *  - 'phase_back' : uses current-phase exercises at conservative end of ranges
+   *  - 'other'      : appends a free-text user note to the generation prompt
+   */
+  const requestWorkoutUpdate = useCallback(async (
+    type: 'advance' | 'phase_back' | 'other',
+    note?: string,
+  ) => {
+    if (!user || !sessionId || !checkInId) return;
+
+    let overridePhaseId: string | undefined;
+
+    if (type === 'advance') {
+      const plan = await getActivePlan(user.id);
+      if (plan) {
+        const sorted = [...plan.plan_phases].sort((a, b) => a.phase_number - b.phase_number);
+        const activeIdx = sorted.findIndex((p) => p.status === 'active');
+        const nextPhase = activeIdx >= 0 ? sorted[activeIdx + 1] : null;
+        if (nextPhase) {
+          overridePhaseId = nextPhase.id;
+        }
+        // If no next phase (user is on the last phase), fall through without override
+      }
+    }
+
+    // Clear today's cache so the new workout is served on next init
+    const today = new Date().toISOString().split('T')[0];
+    await clearCachedWorkoutForDate(today).catch(() => {/* non-critical */});
+
+    await generateWorkout(sessionId, checkInId, user.id, {
+      overridePhaseId,
+      overrideNote: note,
+      overrideType: type,
+    });
+  }, [user, sessionId, checkInId, generateWorkout]);
+
   return {
     phase,
     sessionId,
@@ -537,5 +585,6 @@ export function useTodayWorkout(): TodayState {
     submitCheckIn: handleSubmitCheckIn,
     retryWorkoutGeneration,
     acknowledgeSafety,
+    requestWorkoutUpdate,
   };
 }

@@ -119,12 +119,15 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json();
-    const { sessionId, checkInId, isoDate, dayOfWeek, timeOfDay } = body as {
+    const { sessionId, checkInId, isoDate, dayOfWeek, timeOfDay, overridePhaseId, overrideNote, overrideType } = body as {
       sessionId: string;
       checkInId: string;
       isoDate?: string;
       dayOfWeek?: string;
       timeOfDay?: string;
+      overridePhaseId?: string;
+      overrideNote?: string;
+      overrideType?: 'advance' | 'phase_back' | 'other';
     };
 
     const schedulingContext = (() => {
@@ -210,6 +213,11 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // For 'advance' override, exercises come from the specified override phase.
+    // Plan metadata (condition_id, protocol_version) is fetched from the session's
+    // own phase — both phases belong to the same plan so the values are identical.
+    const exercisePhaseId = overridePhaseId ?? session.plan_phase_id;
+
     const [
       { data: phaseWithPlan },
       { data: phaseExercises },
@@ -223,7 +231,7 @@ Deno.serve(async (req: Request) => {
       supabase
         .from('phase_exercises')
         .select('*')
-        .eq('phase_id', session.plan_phase_id)
+        .eq('phase_id', exercisePhaseId)
         .order('order_index'),
       supabase
         .from('check_ins')
@@ -258,24 +266,35 @@ Deno.serve(async (req: Request) => {
       const isVariantB = (Math.floor(Date.now() / 30_000) % 2) === 1;
       // Include generation time in the explanation so the tester can confirm it regenerated.
       const generatedAt = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-      console.log(`[generate-workout] MOCK_LLM=true — variant ${isVariantB ? 'B' : 'A'}, generated ${generatedAt}`);
+      const overrideLabel = overrideType ? ` [override: ${overrideType}]` : '';
+      console.log(`[generate-workout] MOCK_LLM=true — variant ${isVariantB ? 'B' : 'A'}${overrideLabel}, generated ${generatedAt}`);
       // Variant B reverses the exercise order so the first card is visibly different.
       const mockExercises = isVariantB
-        ? [...exercisesForPrompt].reverse().slice(0, 3)
-        : exercisesForPrompt.slice(0, 3);
+        ? [...exercisesForPrompt].reverse().slice(0, 6)
+        : exercisesForPrompt.slice(0, 6);
+      // phase_back: reduce sets to lower end of prescription (conservative session)
+      const isConservative = overrideType === 'phase_back';
       parsed = {
         workout_type: workoutType,
-        plain_language_explanation: isVariantB
+        plain_language_explanation: overrideType === 'advance'
+          ? `[Mock · ${generatedAt}] Challenge session — exercises from the next phase to test readiness. Same plan, advanced load.`
+          : overrideType === 'phase_back'
+          ? `[Mock · ${generatedAt}] Conservative session as requested — current phase exercises at lower end of prescribed ranges. Focus on form and comfort today.`
+          : overrideType === 'other'
+          ? `[Mock · ${generatedAt}] Custom session — ${overrideNote ?? 'adjusted per your request'}.`
+          : isVariantB
           ? `[Mock B · ${generatedAt}] ${workoutType === 'modified' ? 'Modified' : 'Standard'} session — today focuses on end-phase exercises with extra control. Same phase, different order to confirm refresh.`
           : `[Mock A · ${generatedAt}] ${workoutType === 'modified' ? 'Modified' : 'Standard'} PHT session. Full prescribed load, controlled tempo throughout.`,
         exercises: mockExercises.map((e: Record<string, unknown>) => ({
           exercise_name: String(e.exercise_name ?? 'Exercise'),
-          sets: Math.min(Math.max(Math.round(Number(e.prescribed_sets) || 3), 1), 10),
+          sets: isConservative
+            ? Math.max(1, Math.min(Math.max(Math.round(Number(e.prescribed_sets) || 3), 1), 10) - 1)
+            : Math.min(Math.max(Math.round(Number(e.prescribed_sets) || 3), 1), 10),
           reps: String(e.prescribed_reps ?? '8-10'),
           load: String(e.load_target ?? 'bodyweight'),
           tempo: isVariantB ? '2-1-2' : String(e.tempo ?? '3-1-3'),
           rest_seconds: Math.min(Math.max(Math.round(Number(e.rest_seconds) || 60), 0), 600),
-          notes: isVariantB ? '[Mock B]' : '[Mock A]',
+          notes: overrideType ? `[${overrideType}]` : isVariantB ? '[Mock B]' : '[Mock A]',
         })),
       };
     } else {
@@ -291,7 +310,13 @@ Deno.serve(async (req: Request) => {
         schedulingContext,
       );
 
-      const userMessage = 'Generate the workout for today.';
+      let userMessage = 'Generate the workout for today.';
+      if (overrideType === 'phase_back') {
+        userMessage += ' The user has requested a conservative session — use the lower end of all prescribed ranges for sets, reps, and load. Prioritize form and pain management. Keep total volume modest.';
+      } else if (overrideType === 'other' && overrideNote) {
+        userMessage += ` User note: ${overrideNote}`;
+      }
+      // For 'advance', no extra instruction — exercises already come from the next phase.
 
       let callResult: Awaited<ReturnType<typeof callLLM>>;
       try {
@@ -356,6 +381,8 @@ Deno.serve(async (req: Request) => {
         workout_type: parsed!.workout_type,
         plain_language_explanation: parsed!.plain_language_explanation,
         prompt_version: PROMPT_VERSION,
+        override_type: overrideType ?? null,
+        override_note: overrideNote ?? null,
       })
       .select('id')
       .single();

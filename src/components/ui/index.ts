@@ -11,3 +11,5 @@ export { EvolutionEventBanner } from './EvolutionEventBanner';
 export { ExerciseCard } from './ExerciseCard';
 export type { ExerciseDisplayData } from './ExerciseCard';
 export { SafetyAdvisoryModal } from './SafetyAdvisoryModal';
+export { UpdateWorkoutModal } from './UpdateWorkoutModal';
+export type { WorkoutUpdateType } from './UpdateWorkoutModal';

@@ -20,7 +20,9 @@ import {
   LoadingState,
   SafetyAdvisoryModal,
   EvolutionEventBanner,
+  UpdateWorkoutModal,
 } from '@/components/ui';
+import type { WorkoutUpdateType } from '@/components/ui';
 import { useTodayWorkout, type CompletedSessionData } from '@/hooks/useTodayWorkout';
 import { useAuth } from '@/hooks/useAuth';
 import { acknowledgeSafetyEvent } from '@/services/safetyEvents';
@@ -256,6 +258,7 @@ interface WorkoutDisplayProps {
   }>;
   fallbackBanner?: string;
   onStartWorkout: () => void;
+  onUpdateWorkout: () => void;
 }
 
 function WorkoutDisplay({
@@ -264,6 +267,7 @@ function WorkoutDisplay({
   exercises,
   fallbackBanner,
   onStartWorkout,
+  onUpdateWorkout,
 }: WorkoutDisplayProps) {
   return (
     <View style={styles.workoutContainer}>
@@ -302,6 +306,10 @@ function WorkoutDisplay({
         onPress={onStartWorkout}
         style={styles.startButton}
       />
+
+      <TouchableOpacity style={styles.updateWorkoutRow} onPress={onUpdateWorkout}>
+        <Text style={styles.updateWorkoutText}>Update this workout</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -313,6 +321,8 @@ export default function TodayScreen() {
   const router = useRouter();
   const today = useTodayWorkout();
   const [showingSafety, setShowingSafety] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [updateModalLoading, setUpdateModalLoading] = useState(false);
   const [evolutionBanner, setEvolutionBanner] = useState<{
     eventType: 'progression' | 'regression' | 'hold' | 'plan_revised';
     rationale: string;
@@ -403,6 +413,7 @@ export default function TodayScreen() {
                 },
               });
             }}
+            onUpdateWorkout={() => setShowUpdateModal(true)}
           />
         );
 
@@ -487,6 +498,18 @@ export default function TodayScreen() {
           onAcknowledge={handleAcknowledgeSafety}
         />
       )}
+
+      <UpdateWorkoutModal
+        visible={showUpdateModal}
+        loading={updateModalLoading}
+        onClose={() => setShowUpdateModal(false)}
+        onSelect={async (type: WorkoutUpdateType, note?: string) => {
+          setUpdateModalLoading(true);
+          await today.requestWorkoutUpdate(type, note);
+          setUpdateModalLoading(false);
+          setShowUpdateModal(false);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -618,6 +641,16 @@ const styles = StyleSheet.create({
   startButton: {
     marginTop: Spacing.space2,
   } as ViewStyle,
+  updateWorkoutRow: {
+    alignItems: 'center',
+    paddingVertical: Spacing.space3,
+    marginTop: Spacing.space1,
+  } as ViewStyle,
+  updateWorkoutText: {
+    ...Typography.label,
+    color: Colors.text.secondary,
+    textDecorationLine: 'underline',
+  } as TextStyle,
 
   // Error
   errorContainer: {

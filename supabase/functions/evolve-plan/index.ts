@@ -114,7 +114,7 @@ Deno.serve(async (req: Request) => {
   // Sessions for this plan phase in window
   const { data: sessions } = await supabase
     .from('sessions')
-    .select('status, scheduled_date')
+    .select('id, status, scheduled_date')
     .eq('user_id', user.id)
     .eq('plan_phase_id', activePhase.id)
     .gte('scheduled_date', windowStartDate)
