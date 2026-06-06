@@ -511,6 +511,8 @@ export default function TodayScreen() {
                   sessionId: today.sessionId,
                   workoutId: today.workout.workoutId,
                   exercisesJson: JSON.stringify(exercises),
+                  phaseNumber: String(today.phaseNumber ?? ''),
+                  phaseName: today.phaseName ?? '',
                 },
               });
             }}

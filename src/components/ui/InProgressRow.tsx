@@ -1,40 +1,55 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
+import { Check } from 'phosphor-react-native';
 import { Colors, Typography, FontFamily } from '@/theme';
 import { TodayStepper } from './TodayStepper';
 
 interface InProgressRowProps {
+  /** 1-based display index */
+  index: number;
   name: string;
   prescribedSets: number;
   prescribedReps: string | null;
   setsCompleted: number;
   onSetsChange: (v: number) => void;
+  /** When true, removes the bottom divider */
+  isLast?: boolean;
 }
 
 function formatPrescription(sets: number, reps: string | null): string {
   if (!reps) return `${sets} sets`;
   const isTime = /\d+\s*(s|sec|seconds?)\b/i.test(reps);
-  const repsStr = isTime ? reps.replace(/\s*seconds?\b/gi, 's') : `${reps} reps`;
-  return `${sets} sets × ${repsStr}`;
+  const repsStr = isTime ? reps.replace(/\s*seconds?\b/gi, 's') : reps;
+  return `${sets} × ${repsStr}`;
 }
 
 export function InProgressRow({
+  index,
   name,
   prescribedSets,
   prescribedReps,
   setsCompleted,
   onSetsChange,
+  isLast = false,
 }: InProgressRowProps) {
   const isDone = setsCompleted >= prescribedSets;
 
   return (
-    <View style={[styles.container, isDone && styles.containerDone]}>
-      {/* Col 1: 20px — completion indicator */}
-      <View style={[styles.checkBox, isDone && styles.checkBoxDone]} />
+    <View style={[styles.container, isLast && styles.containerLast, isDone && styles.containerDone]}>
+      {/* Col 1: 20px — index or moss check */}
+      <View style={styles.indicator}>
+        {isDone ? (
+          <View style={styles.checkSquare}>
+            <Check size={10} color={Colors.text.onDark} weight="bold" />
+          </View>
+        ) : (
+          <Text style={styles.index}>{String(index).padStart(2, '0')}</Text>
+        )}
+      </View>
 
       {/* Col 2: 1fr — name + prescription */}
       <View style={styles.meta}>
-        <Text style={styles.name}>{name}</Text>
+        <Text style={[styles.name, isDone && styles.nameDone]}>{name}</Text>
         <Text style={styles.prescription}>
           {formatPrescription(prescribedSets, prescribedReps)}
         </Text>
@@ -44,8 +59,8 @@ export function InProgressRow({
       <TodayStepper
         value={setsCompleted}
         onDecrement={() => onSetsChange(Math.max(0, setsCompleted - 1))}
-        onIncrement={() => onSetsChange(Math.min(prescribedSets + 5, setsCompleted + 1))}
-        max={prescribedSets + 5}
+        onIncrement={() => onSetsChange(setsCompleted + 1)}
+        doneAt={prescribedSets}
       />
     </View>
   );
@@ -61,20 +76,34 @@ const styles = StyleSheet.create({
     gap: 12,
   } as ViewStyle,
 
+  containerLast: {
+    borderBottomWidth: 0,
+  } as ViewStyle,
+
   containerDone: {
     opacity: 0.5,
   } as ViewStyle,
 
-  checkBox: {
-    width: 16,
-    height: 16,
-    borderWidth: 1,
-    borderColor: Colors.border.default,
+  indicator: {
+    width: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   } as ViewStyle,
 
-  checkBoxDone: {
+  index: {
+    fontFamily: FontFamily.mono,
+    fontSize: 11,
+    lineHeight: 16,
+    color: Colors.text.muted,
+    letterSpacing: 0.44,
+  } as TextStyle,
+
+  checkSquare: {
+    width: 16,
+    height: 16,
     backgroundColor: Colors.moss,
-    borderColor: Colors.moss,
+    alignItems: 'center',
+    justifyContent: 'center',
   } as ViewStyle,
 
   meta: {
@@ -87,10 +116,16 @@ const styles = StyleSheet.create({
     color: Colors.text.primary,
   } as TextStyle,
 
+  nameDone: {
+    textDecorationLine: 'line-through',
+    textDecorationColor: Colors.text.muted,
+  } as TextStyle,
+
   prescription: {
     fontFamily: FontFamily.mono,
-    fontSize: 12,
-    lineHeight: 18,
-    color: Colors.text.secondary,
+    fontSize: 11,
+    lineHeight: 16,
+    letterSpacing: 0.22,
+    color: Colors.text.muted,
   } as TextStyle,
 });
