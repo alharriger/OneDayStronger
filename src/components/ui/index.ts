@@ -18,3 +18,5 @@ export { TodayStepper } from './TodayStepper';
 export { SetsProgressRun } from './SetsProgressRun';
 export { PreWorkoutRow } from './PreWorkoutRow';
 export { InProgressRow } from './InProgressRow';
+export { StatStrip } from './StatStrip';
+export type { StatItem } from './StatStrip';

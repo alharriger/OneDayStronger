@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   TextStyle,
   TouchableOpacity,
   Alert,
+  NativeSyntheticEvent,
+  TextLayoutEventData,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -18,11 +20,13 @@ import {
   PainScale,
   PhaseBadge,
   PreWorkoutRow,
+  StatStrip,
   LoadingState,
   SafetyAdvisoryModal,
   EvolutionEventBanner,
   UpdateWorkoutModal,
 } from '@/components/ui';
+import type { StatItem } from '@/components/ui';
 import type { WorkoutUpdateType } from '@/components/ui';
 import { useTodayWorkout, type CompletedSessionData } from '@/hooks/useTodayWorkout';
 import { useAuth } from '@/hooks/useAuth';
@@ -264,6 +268,41 @@ function WorkoutCompletedView({ completedData }: WorkoutCompletedViewProps) {
   );
 }
 
+// ─── Collapsible explanation text ────────────────────────────────────────────
+
+const EXPLANATION_MAX_LINES = 3;
+
+function CollapsibleExplanation({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+
+  const handleTextLayout = useCallback(
+    (e: NativeSyntheticEvent<TextLayoutEventData>) => {
+      if (e.nativeEvent.lines.length > EXPLANATION_MAX_LINES) {
+        setTruncated(true);
+      }
+    },
+    []
+  );
+
+  return (
+    <View>
+      <Text
+        style={styles.explanationText}
+        numberOfLines={expanded ? undefined : EXPLANATION_MAX_LINES}
+        onTextLayout={truncated ? undefined : handleTextLayout}
+      >
+        {text}
+      </Text>
+      {truncated && (
+        <TouchableOpacity onPress={() => setExpanded((v) => !v)} activeOpacity={0.7}>
+          <Text style={styles.readMoreText}>{expanded ? 'Read less' : 'Read more'}</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
 // ─── Workout display ──────────────────────────────────────────────────────────
 
 interface WorkoutDisplayProps {
@@ -279,6 +318,8 @@ interface WorkoutDisplayProps {
     notes: string;
   }>;
   fallbackBanner?: string;
+  currentWeek?: number | null;
+  totalWeeks?: number | null;
   onStartWorkout: () => void;
   onUpdateWorkout: () => void;
 }
@@ -288,9 +329,31 @@ function WorkoutDisplay({
   explanation,
   exercises,
   fallbackBanner,
+  currentWeek,
+  totalWeeks,
   onStartWorkout,
   onUpdateWorkout,
 }: WorkoutDisplayProps) {
+  // Build stat strip items
+  const statItems: StatItem[] = [
+    {
+      value: exercises.length,
+      label: 'EXERCISES',
+    },
+    {
+      value: exercises.length * 6,
+      unit: 'MIN',
+      label: 'EST. DURATION',
+    },
+  ];
+  if (currentWeek != null && totalWeeks != null) {
+    statItems.push({
+      value: currentWeek,
+      unit: `/${totalWeeks}`,
+      label: 'WEEK',
+    });
+  }
+
   return (
     <View style={styles.workoutContainer}>
       {fallbackBanner && (
@@ -305,16 +368,17 @@ function WorkoutDisplay({
         </View>
       )}
 
-      {/* Explanation card */}
-      <View style={styles.explanationCard}>
-        <Text style={styles.explanationText}>{explanation}</Text>
-      </View>
+      {/* Stat strip */}
+      <StatStrip items={statItems} />
+
+      {/* Collapsible explanation */}
+      <CollapsibleExplanation text={explanation} />
 
       {/* Exercise list */}
       <View style={styles.exerciseSection}>
         <View style={styles.exerciseSectionHeader}>
-          <Text style={styles.exerciseSectionEyebrow}>Today's workout</Text>
-          <Text style={styles.exerciseCount}>{exercises.length} exercises</Text>
+          <Text style={styles.exerciseSectionEyebrow}>Exercises</Text>
+          <Text style={styles.exerciseCount}>{exercises.length} total</Text>
         </View>
         <View style={styles.exerciseList}>
           {exercises.map((ex, i) => (
@@ -325,8 +389,10 @@ function WorkoutDisplay({
               sets={ex.sets}
               reps={ex.reps}
               load={ex.load || null}
+              tempo={ex.tempo || null}
               restSeconds={ex.rest_seconds || null}
               notes={ex.notes || null}
+              isLast={i === exercises.length - 1}
             />
           ))}
         </View>
@@ -334,13 +400,15 @@ function WorkoutDisplay({
 
       <Button
         label="Start workout"
-        variant="hero"
+        variant="primary"
+        arrow="→"
         onPress={onStartWorkout}
         style={styles.startButton}
       />
 
-      <TouchableOpacity style={styles.updateWorkoutRow} onPress={onUpdateWorkout}>
+      <TouchableOpacity style={styles.updateWorkoutRow} onPress={onUpdateWorkout} activeOpacity={0.7}>
         <Text style={styles.updateWorkoutText}>Update this workout</Text>
+        <Text style={styles.updateWorkoutArrow}>→</Text>
       </TouchableOpacity>
     </View>
   );
@@ -427,6 +495,8 @@ export default function TodayScreen() {
             explanation={today.workout.plain_language_explanation}
             exercises={today.workout.exercises}
             fallbackBanner={today.workout.fallbackBanner}
+            currentWeek={today.currentWeek}
+            totalWeeks={today.totalWeeks}
             onStartWorkout={() => {
               if (!today.workout || !today.sessionId) return;
               const exercises = today.workout.exercises.map((e) => ({
@@ -536,7 +606,9 @@ export default function TodayScreen() {
             </View>
 
             {/* Row 2: hero title */}
-            <Text style={styles.screenHero}>Today</Text>
+            <Text style={styles.screenHero}>
+              {today.phase === 'workout_ready' ? 'Today\'s session.' : 'Today'}
+            </Text>
 
             {/* Row 3: phase badge */}
             {showPhaseBadge && (
@@ -734,17 +806,17 @@ const styles = StyleSheet.create({
     color: Colors.semantic.warning,
   } as TextStyle,
 
-  explanationCard: {
-    borderWidth: 1,
-    borderColor: Colors.border.faint,
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.primary,
-    padding: Spacing.space4,
-  } as ViewStyle,
-
   explanationText: {
     ...Typography.body,
     color: Colors.text.secondary,
+  } as TextStyle,
+
+  readMoreText: {
+    fontFamily: FontFamily.bold,
+    fontSize: 13,
+    lineHeight: 20,
+    color: Colors.primary,
+    marginTop: 4,
   } as TextStyle,
 
   exerciseSection: {
@@ -781,14 +853,25 @@ const styles = StyleSheet.create({
   } as ViewStyle,
 
   updateWorkoutRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: Spacing.space3,
+    justifyContent: 'space-between',
+    height: 52,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
+    paddingHorizontal: 18,
   } as ViewStyle,
 
   updateWorkoutText: {
-    ...Typography.label,
+    ...Typography.buttonLabel,
     color: Colors.text.secondary,
-    textDecorationLine: 'underline',
+  } as TextStyle,
+
+  updateWorkoutArrow: {
+    fontFamily: 'JetBrainsMono_400Regular',
+    fontSize: 16,
+    lineHeight: 16,
+    color: Colors.text.secondary,
   } as TextStyle,
 
   // ── Error ─────────────────────────────────────────────────────────────────

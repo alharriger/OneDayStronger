@@ -115,6 +115,13 @@ Built and verified on device. Committed on `feature/b5-today-screens`.
 - **PhaseBadge:** top/bottom 1px color borders spanning full card width, 6×6 dot, Lato 700 11px uppercase, primary/danger color variants
 - **PainScale:** custom PanResponder slider (replaces native slider), 56px right-aligned value, 28×28 square thumb with grip lines, 11-tick marks
 
+#### B5-T: Today Screen (IN PROGRESS)
+
+**B5-T1: Check-in state — ✅ COMPLETE (2026-06-06, commit dc2c02c)**
+All known issues resolved: phase badge below hero, lineStrong top border, correct typography, PainScale with square thumb + 56px right-aligned value + semantic fill colors, primary arrow button. Pitfall P11 added (negative letterSpacing clipping on iOS).
+
+---
+
 #### B5-T: Today Screen (NEEDS REWORK — designs shared, first pass rejected)
 
 **Known issues from first pass (all must be fixed):**
@@ -128,8 +135,17 @@ Built and verified on device. Committed on `feature/b5-today-screens`.
 - Button: text should be left-aligned with an icon, not centered
 - Slider and number colors wrong
 
-**B5-T2: Generating state:**
-- (Needs design file — evaluate after B5-T1)
+**B5-T2: Generating state — SKIPPED**
+No design file provided. Generating state stays as existing LoadingState component.
+
+**B5-T3: Today's Workout screen — IN PROGRESS**
+Implementation plan (confirmed 2026-06-06):
+- New StatStrip shared component (reused on B5-T5): flex row, N columns, top lineStrong border, bottom line border, each column has value (JBMono 500 22px) + optional unit (JBMono 600 11px primary) + label (eyebrow)
+- PreWorkoutRow: add tempo + isLast props; annotation format → `{LOAD} · TEMPO {TEMPO} · REST {REST}s` (JBMono 10px 0.06em uppercase); prescription format → `{n} × {reps}` (no "sets"); fix gap/padding
+- useTodayWorkout: add currentWeek (from started_at) + totalWeeks (from estimated_duration_weeks) — no new DB query
+- today.tsx WorkoutDisplay: remove left-border explanation card → collapsible plain text (3 lines, Read more toggle); add StatStrip; update exercise section header; PreWorkoutRow gets tempo + isLast; Button hero→primary + arrow; ghost CTA rebuild (44px, lineFaint border, space-between)
+- Header hero title: "Today's session." when workout_ready, "Today" otherwise
+- WEEK stat column hidden if currentWeek or totalWeeks is null
 
 **B5-T3: Workout display / Today's Workout screen:**
 - Hero text should say "Today's session" not "Today"

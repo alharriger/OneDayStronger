@@ -94,6 +94,10 @@ export interface TodayState {
   phaseNumber: number | null;
   /** Active phase name for PhaseBadge display. */
   phaseName: string | null;
+  /** Current week within the active phase (1-based); null if unknown. */
+  currentWeek: number | null;
+  /** Total weeks in the active phase; null if unknown. */
+  totalWeeks: number | null;
   // Actions
   submitCheckIn: (painLevel: number, sorenessLevel: number) => Promise<void>;
   retryWorkoutGeneration: () => Promise<void>;
@@ -138,6 +142,8 @@ export function useTodayWorkout(): TodayState {
   const [streakCount, setStreakCount] = useState<number | null>(null);
   const [phaseNumber, setPhaseNumber] = useState<number | null>(null);
   const [phaseName, setPhaseName] = useState<string | null>(null);
+  const [currentWeek, setCurrentWeek] = useState<number | null>(null);
+  const [totalWeeks, setTotalWeeks] = useState<number | null>(null);
 
   // Set to true when a plan change fires while the Today tab may not be focused.
   // useFocusEffect reads and clears it on the next focus to guarantee a reinit.
@@ -242,6 +248,13 @@ export function useTodayWorkout(): TodayState {
       if (activePhase) {
         setPhaseNumber(activePhase.phase_number);
         setPhaseName(activePhase.name);
+        if (activePhase.started_at && activePhase.estimated_duration_weeks) {
+          const diffDays = Math.floor(
+            (Date.now() - new Date(activePhase.started_at).getTime()) / 86400000
+          );
+          setCurrentWeek(Math.max(1, Math.ceil((diffDays + 1) / 7)));
+          setTotalWeeks(activePhase.estimated_duration_weeks);
+        }
       }
 
       if (pendingSafety) {
@@ -606,6 +619,8 @@ export function useTodayWorkout(): TodayState {
     streakCount,
     phaseNumber,
     phaseName,
+    currentWeek,
+    totalWeeks,
     submitCheckIn: handleSubmitCheckIn,
     retryWorkoutGeneration,
     acknowledgeSafety,

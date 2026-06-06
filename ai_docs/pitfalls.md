@@ -182,6 +182,24 @@ Design compliance for a UI feature IS the acceptance test. Shipping a screen tha
 
 ---
 
+## P11 — Negative `letterSpacing` on large Text nodes causes right-side glyph clipping on iOS
+
+**What went wrong:**
+`PainScale` used `letterSpacing: -2.24` (`-0.04em` at 56px) on a large Lato 900 Black value number. The number was visibly cut off on the right side. Three fix attempts were made before the root cause was understood:
+1. `paddingRight: 4` on the parent View — wrong level, didn't help
+2. `marginRight: 6` on the Text — external to the text frame, didn't help
+3. Only after forced diagnosis: root cause identified and resolved
+
+**Root cause:**
+In React Native on iOS, negative `letterSpacing` causes the Text node's layout frame to be computed as `glyph_advance_width + letterSpacing` (narrower than the natural advance width). The glyph ink still extends to the full natural advance width. On iOS, text renders within its computed layout frame — ink beyond the right frame boundary is clipped. `marginRight` creates space outside the text frame and has no effect on this clipping. `paddingRight` on the Text itself would expand the frame, but the cleanest fix is to simply remove the negative letterSpacing.
+
+**How to work going forward:**
+- Do not apply negative `letterSpacing` to Text nodes with `fontSize` ≥ 24px. The tight-tracking effect is barely perceptible at large sizes and is not worth the clipping risk.
+- If negative letterSpacing is required by design at large sizes, use `paddingRight` on the Text element (not `marginRight`, not padding on the parent) to expand the text frame.
+- When a glyph appears clipped on one side, diagnose the clip boundary before trying fixes: is it the text node's own frame, a parent View boundary, or the ScrollView? `marginRight`/`paddingRight` on a parent and `paddingRight` on the text itself are different operations with different effects.
+
+---
+
 ## P10 — Trying to go fast by doing too much at once is slower than doing one thing correctly
 
 **What went wrong:**
