@@ -96,14 +96,73 @@ override_note   text nullable
 ### B5. UI design consistency pass — all screens to match completed workout page
 **What:** Apply a consistent visual language across every screen using new designs created in Claude Design. Implement one group at a time; each item is its own commit, verified on device before moving to the next. Designs will be shared by the user before each group starts.
 
-**Status:** Waiting for Today page designs. All other groups blocked until Today group is complete and the design language is established.
+**Status:** TODAY SCREENS — NEEDS REWORK. A first implementation pass was completed on branch `feature/b5-today-screens` but does not match the designs (see P9/P10 in pitfalls.md). Rework in progress.
 
-#### B5-T: Today Screen (5 items — designs incoming)
-- **B5-T1: Check-in state** — check-in widget, pain/soreness sliders, submit button
-- **B5-T2: Generating state** — loading spinner / generating workout screen
-- **B5-T3: Workout display (workout_ready)** — explanation card, exercise cards, start button, update workout row
-- **B5-T4: Log workout screen (in-progress)** — exercise rows, set/rep logging inputs, submit flow
-- **B5-T5: Post-workout meters** — difficulty rating + pain-during-session UI on the log-workout screen
+#### Required process for every B5 screen (non-negotiable after P9/P10):
+1. User re-shares the design file for the screen in the current conversation
+2. Extract full written spec before writing any code (every component, color, spacing, interaction)
+3. Identify shared components that appear on this screen and prior screens — build shared components as their own unit first
+4. Implement exactly one screen
+5. Run dev server, compare to design element-by-element, log every match/mismatch
+6. Fix all mismatches before committing
+7. Present audit log to user alongside implementation; user tests on device
+8. Only commit and move to next screen after user approval
+
+#### B5 Phase 0 Shared Components — ✅ COMPLETE (2026-06-06)
+
+Built and verified on device. Committed on `feature/b5-today-screens`.
+- **AppTabBar:** custom tab bar with 2px primary active indicator at top of active tab, hidden routes (`log-workout`, `post-workout-checkin`), correct Phosphor icons + Lato 700 uppercase labels
+- **PhaseBadge:** top/bottom 1px color borders spanning full card width, 6×6 dot, Lato 700 11px uppercase, primary/danger color variants
+- **PainScale:** custom PanResponder slider (replaces native slider), 56px right-aligned value, 28×28 square thumb with grip lines, 11-tick marks
+
+#### B5-T: Today Screen (NEEDS REWORK — designs shared, first pass rejected)
+
+**Known issues from first pass (all must be fixed):**
+
+**B5-T1: Check-in state (GenerateWorkout screen):**
+- Phase badge missing under hero header
+- Missing horizontal line separator
+- "How are you feeling today?" — wrong font size and weight
+- Body paragraph — wrong font/size
+- PainScale component: wrong thumb shape, value display wrong (number should be right-aligned), scale labels wrong
+- Button: text should be left-aligned with an icon, not centered
+- Slider and number colors wrong
+
+**B5-T2: Generating state:**
+- (Needs design file — evaluate after B5-T1)
+
+**B5-T3: Workout display / Today's Workout screen:**
+- Hero text should say "Today's session" not "Today"
+- Phase badge missing under hero
+- Streak strip missing (appears below hero area)
+- Workout description: current left-border card does not match the design alert style
+- "By the numbers" stat section missing
+- Start workout button: wrong alignment (should be left-aligned with arrow icon), not centered
+- "Update this workout" row does not follow design
+
+**B5-T4: Log workout / In Progress screen:**
+- Date line missing from header
+- Title content wrong (user prefers "Today's Workout" label over what designs say for that field)
+- Phase badge missing
+- In-progress indicator missing
+- Checkbox marker on InProgressRow is wrong — remove the check box square from left side
+- Complete workout button: wrong alignment and color
+- Divider line between exercises missing
+
+**B5-T5: Post-workout check-in screen:**
+- Screen title wrong (hyphenated word, should match design wording)
+- Phase badge missing
+- PainScale sliders: wrong thumb selector, value numbers misaligned and miscolored
+- "By the numbers" stat strip missing the duration field
+- Log workout button: wrong color and alignment
+- Missing back button (needed in case user tapped Complete by accident)
+
+**B5-T6: Workout complete screen (existing, needs rework):**
+- "By the numbers" stat strip wrong, does not match design layout
+- Missing divider underneath "What you did" section
+- Checkmarks are circles — should be squares (matches design system: no border radius)
+- Next workout row missing the "Next workout" label
+- Streak bar direction wrong (should progress left-to-right with oldest on left)
 
 #### B5-P: Plan Pages (2 items)
 - **B5-P1: Plan page** — phase cards, accordion, phase badges, criteria row, jump UI
