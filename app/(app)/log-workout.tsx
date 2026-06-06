@@ -98,6 +98,9 @@ export default function LogWorkoutScreen() {
         workoutId: params.workoutId ?? '',
         exerciseActualsJson: JSON.stringify(actualsForCheckin),
         exercisesJson: params.exercisesJson ?? '[]',
+        elapsedSeconds: String(elapsed),
+        phaseNumber: params.phaseNumber ?? '',
+        phaseName: params.phaseName ?? '',
       },
     });
   };

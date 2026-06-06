@@ -8,7 +8,8 @@
  * On "Log workout": saves the workout log, marks session complete, triggers
  * plan evolution, and navigates back to Today.
  *
- * Route params: sessionId, workoutId, exerciseActualsJson, exercisesJson
+ * Route params: sessionId, workoutId, exerciseActualsJson, exercisesJson,
+ *   elapsedSeconds, phaseNumber, phaseName
  */
 import React, { useState, useCallback } from 'react';
 import {
@@ -18,11 +19,13 @@ import {
   StyleSheet,
   ViewStyle,
   TextStyle,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Colors, Typography, Spacing, FontFamily } from '@/theme';
-import { Button, PainScale } from '@/components/ui';
+import { Button, PainScale, PhaseBadge, StatStrip } from '@/components/ui';
+import type { StatItem } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { saveWorkoutLog } from '@/services/workouts';
@@ -34,24 +37,6 @@ import { supabase } from '@/lib/supabase';
 import type { Database } from '@/lib/database.types';
 
 type ExerciseLogInsert = Database['public']['Tables']['exercise_logs']['Insert'];
-
-// ─── Stat strip ───────────────────────────────────────────────────────────────
-
-function StatStrip({ exerciseCount, totalSets }: { exerciseCount: number; totalSets: number }) {
-  return (
-    <View style={styles.statStrip}>
-      <View style={styles.statTile}>
-        <Text style={styles.statValue}>{exerciseCount}</Text>
-        <Text style={styles.statLabel}>Exercises</Text>
-      </View>
-      <View style={styles.statDivider} />
-      <View style={styles.statTile}>
-        <Text style={styles.statValue}>{totalSets}</Text>
-        <Text style={styles.statLabel}>Sets done</Text>
-      </View>
-    </View>
-  );
-}
 
 // ─── High-pain warning overlay ────────────────────────────────────────────────
 
@@ -107,6 +92,9 @@ export default function PostWorkoutCheckinScreen() {
     workoutId: string;
     exerciseActualsJson: string;
     exercisesJson: string;
+    elapsedSeconds: string;
+    phaseNumber: string;
+    phaseName: string;
   }>();
 
   // Parse exercise actuals (setsCompleted per exercise)
@@ -144,6 +132,22 @@ export default function PostWorkoutCheckinScreen() {
   // Summary stats
   const exerciseCount = exerciseActuals.filter((ea) => ea.setsCompleted > 0).length;
   const totalSets = exerciseActuals.reduce((sum, ea) => sum + ea.setsCompleted, 0);
+  const totalPrescribedSets = prescribedExercises.reduce((sum, ex) => sum + ex.prescribedSets, 0);
+
+  // Duration from elapsed timer (min 1 min)
+  const elapsedSeconds = parseInt(params.elapsedSeconds ?? '0', 10);
+  const durationMinutes = Math.max(1, Math.round(elapsedSeconds / 60));
+
+  // Phase badge
+  const phaseNumber = params.phaseNumber ? parseInt(params.phaseNumber, 10) : null;
+  const phaseName = params.phaseName || null;
+  const showPhaseBadge = phaseNumber != null && !isNaN(phaseNumber) && phaseName != null;
+
+  const statItems: StatItem[] = [
+    { value: exerciseCount, label: 'Exercises' },
+    { value: durationMinutes, unit: 'MIN', label: 'Duration' },
+    { value: `${totalSets}/${totalPrescribedSets}`, label: 'Sets done' },
+  ];
 
   const doSubmit = useCallback(async () => {
     if (!user) return;
@@ -253,34 +257,43 @@ export default function PostWorkoutCheckinScreen() {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.dateMeta}>{monoDateLabel}</Text>
-          <Text style={styles.eyebrow}>Workout complete</Text>
-          <Text style={styles.screenTitle}>How'd it go?</Text>
+          <Text style={styles.screenHero}>How did it go?</Text>
+          {showPhaseBadge && (
+            <View style={styles.phaseBadgeRow}>
+              <PhaseBadge phaseNumber={phaseNumber!} phaseName={phaseName!} />
+            </View>
+          )}
         </View>
 
-        {/* Stat summary */}
-        <StatStrip exerciseCount={exerciseCount} totalSets={totalSets} />
+        {/* Stat strip */}
+        <StatStrip items={statItems} />
+
+        {/* Rate section heading */}
+        <View style={styles.rateSection}>
+          <Text style={styles.rateSectionTitle}>Rate your session.</Text>
+          <Text style={styles.rateSectionSubtext}>This helps calibrate your next workout.</Text>
+        </View>
 
         {/* Pain scale */}
-        <View style={styles.scaleSection}>
-          <Text style={styles.scaleEyebrow}>Pain</Text>
-          <Text style={styles.scaleHint}>Pain at the hamstring attachment during the session</Text>
-          <PainScale
-            value={painDuringSession}
-            onValueChange={setPainDuringSession}
-            minLabel="0  No pain"
-            maxLabel="10  Worst pain"
-          />
-        </View>
+        <PainScale
+          value={painDuringSession}
+          onValueChange={setPainDuringSession}
+          label="PAIN"
+          minLabel="0  NO PAIN"
+          maxLabel="10  WORST"
+        />
 
-        {/* Effort / difficulty scale */}
-        <View style={styles.scaleSection}>
-          <Text style={styles.scaleEyebrow}>Effort</Text>
-          <Text style={styles.scaleHint}>Overall session difficulty</Text>
+        {/* Scale divider */}
+        <View style={styles.scaleDivider} />
+
+        {/* Effort scale */}
+        <View style={styles.effortWrapper}>
           <PainScale
             value={effortRating}
             onValueChange={setEffortRating}
-            minLabel="0  Very easy"
-            maxLabel="10  Maximal"
+            label="EFFORT"
+            minLabel="0  VERY EASY"
+            maxLabel="10  MAXIMAL"
           />
         </View>
 
@@ -288,13 +301,23 @@ export default function PostWorkoutCheckinScreen() {
           <Text style={styles.errorText}>{error}</Text>
         )}
 
-        <Button
-          label="Log workout"
-          variant="hero"
-          onPress={handleSubmit}
-          loading={phase === 'submitting'}
-          style={styles.submitButton}
-        />
+        {/* CTAs */}
+        <View style={styles.ctaSection}>
+          <Button
+            label="Log workout"
+            variant="primary"
+            arrow="→"
+            onPress={handleSubmit}
+            loading={phase === 'submitting'}
+          />
+          <TouchableOpacity
+            style={styles.cancelButton}
+            onPress={() => router.back()}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.cancelText}>← Cancel</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
 
       {phase === 'high_pain_warning' && (
@@ -324,93 +347,104 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: Spacing.screenHorizontal,
     paddingBottom: Spacing.space8,
-    gap: Spacing.space6,
   } as ViewStyle,
+
+  // ── Header ────────────────────────────────────────────────────────────────
 
   header: {
     paddingTop: Spacing.space4,
     gap: Spacing.space2,
+    marginBottom: Spacing.space5,
   } as ViewStyle,
 
   dateMeta: {
     fontFamily: FontFamily.mono,
     fontSize: 11,
     color: Colors.text.muted,
-    letterSpacing: 0.8,
+    letterSpacing: 0.44,
     textTransform: 'uppercase',
   } as TextStyle,
 
-  eyebrow: {
-    ...Typography.eyebrow,
-    color: Colors.moss,
-  } as TextStyle,
-
-  screenTitle: {
+  screenHero: {
     fontFamily: FontFamily.black,
     fontSize: 40,
-    lineHeight: 44,
-    letterSpacing: -1.2,
+    lineHeight: 39,
+    letterSpacing: -1.4,
+    color: Colors.text.primary,
+    marginTop: 12,
+  } as TextStyle,
+
+  phaseBadgeRow: {
+    marginTop: 10,
+  } as ViewStyle,
+
+  // ── Rate section ──────────────────────────────────────────────────────────
+
+  rateSection: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.border.strong,
+    paddingTop: 14,
+    gap: 8,
+    marginTop: Spacing.space6,
+    marginBottom: 28,
+  } as ViewStyle,
+
+  rateSectionTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 18,
+    lineHeight: 24,
+    letterSpacing: -0.18,
     color: Colors.text.primary,
   } as TextStyle,
 
-  // Stat strip
-  statStrip: {
-    flexDirection: 'row',
-    backgroundColor: Colors.bg.surface,
-    borderWidth: 1,
-    borderColor: Colors.border.faint,
-    padding: Spacing.space4,
-    alignItems: 'center',
-  } as ViewStyle,
-
-  statTile: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 4,
-  } as ViewStyle,
-
-  statValue: {
-    ...Typography.stat,
-    color: Colors.text.primary,
-  } as TextStyle,
-
-  statLabel: {
-    ...Typography.eyebrow,
-    color: Colors.text.muted,
-    fontSize: 9,
-  } as TextStyle,
-
-  statDivider: {
-    width: 1,
-    height: 32,
-    backgroundColor: Colors.border.faint,
-  } as ViewStyle,
-
-  // Scales
-  scaleSection: {
-    gap: Spacing.space2,
-  } as ViewStyle,
-
-  scaleEyebrow: {
-    ...Typography.eyebrow,
+  rateSectionSubtext: {
+    fontFamily: FontFamily.regular,
+    fontSize: 14,
+    lineHeight: 21,
     color: Colors.text.secondary,
   } as TextStyle,
 
-  scaleHint: {
-    ...Typography.bodySmall,
+  // ── Scales ────────────────────────────────────────────────────────────────
+
+  scaleDivider: {
+    height: 1,
+    backgroundColor: Colors.border.faint,
+    marginVertical: 28,
+  } as ViewStyle,
+
+  effortWrapper: {
+    marginBottom: Spacing.space8,
+  } as ViewStyle,
+
+  // ── CTAs ──────────────────────────────────────────────────────────────────
+
+  ctaSection: {
+    gap: 8,
+  } as ViewStyle,
+
+  cancelButton: {
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  } as ViewStyle,
+
+  cancelText: {
+    fontFamily: FontFamily.bold,
+    fontSize: 11,
+    letterSpacing: 1.56,
+    textTransform: 'uppercase',
     color: Colors.text.muted,
-    marginTop: -Spacing.space1,
   } as TextStyle,
 
   errorText: {
     ...Typography.body,
     color: Colors.semantic.danger,
     textAlign: 'center',
+    marginBottom: 8,
   } as TextStyle,
 
-  submitButton: {} as ViewStyle,
+  // ── Warning overlay ───────────────────────────────────────────────────────
 
-  // Warning overlay
   warningOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.5)',
