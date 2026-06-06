@@ -16,6 +16,7 @@ import { Colors, Typography, Spacing, FontFamily } from '@/theme';
 import {
   Button,
   PainScale,
+  PhaseBadge,
   PreWorkoutRow,
   LoadingState,
   SafetyAdvisoryModal,
@@ -32,44 +33,62 @@ import { getUnseenEvents, markEventSeen } from '@/services/evolution';
 
 interface CheckInWidgetProps {
   onSubmit: (pain: number, soreness: number) => void;
+  loading?: boolean;
 }
 
-function CheckInWidget({ onSubmit }: CheckInWidgetProps) {
+function CheckInWidget({ onSubmit, loading = false }: CheckInWidgetProps) {
   const [pain, setPain] = useState(0);
   const [soreness, setSoreness] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handlePress = async () => {
+    setSubmitting(true);
+    try {
+      await onSubmit(pain, soreness);
+      // Phase normally transitions away, unmounting this widget.
+    } finally {
+      // Reset in case phase stays at check_in (e.g. hook returned early).
+      setSubmitting(false);
+    }
+  };
 
   return (
     <View style={styles.checkInContainer}>
-      <Text style={styles.sectionEyebrow}>Check in</Text>
-      <Text style={styles.sectionTitle}>How are you feeling today?</Text>
-      <Text style={styles.sectionSubtitle}>
-        Rate your pain and soreness at the hamstring attachment site.
-      </Text>
-
-      <View style={styles.scaleBlock}>
-        <Text style={styles.scaleEyebrow}>Pain</Text>
-        <PainScale
-          value={pain}
-          onValueChange={setPain}
-          minLabel="0  No pain"
-          maxLabel="10  Worst pain"
-        />
+      {/* Section intro — lineStrong top border */}
+      <View style={styles.sectionIntro}>
+        <Text style={styles.sectionTitle}>How are you feeling?</Text>
+        <Text style={styles.sectionSubtitle}>
+          Rate your pain and soreness at the hamstring attachment site.
+        </Text>
       </View>
 
-      <View style={styles.scaleBlock}>
-        <Text style={styles.scaleEyebrow}>Soreness</Text>
-        <PainScale
-          value={soreness}
-          onValueChange={setSoreness}
-          minLabel="0  No soreness"
-          maxLabel="10  Very sore"
-        />
-      </View>
+      <View style={{ height: 28 }} />
+
+      <PainScale
+        value={pain}
+        onValueChange={setPain}
+        label="PAIN"
+        minLabel="0 NO PAIN"
+        maxLabel="10 WORST"
+      />
+
+      {/* Divider between scales */}
+      <View style={styles.scaleDivider} />
+
+      <PainScale
+        value={soreness}
+        onValueChange={setSoreness}
+        label="SORENESS"
+        minLabel="0 NONE"
+        maxLabel="10 WORST"
+      />
 
       <Button
         label="Generate my workout"
-        variant="hero"
-        onPress={() => onSubmit(pain, soreness)}
+        variant="primary"
+        arrow="→"
+        onPress={handlePress}
+        loading={submitting || loading}
         style={styles.checkInButton}
       />
     </View>
@@ -395,7 +414,7 @@ export default function TodayScreen() {
         return <LoadingState message="Loading your day..." />;
 
       case 'check_in':
-        return <CheckInWidget onSubmit={today.submitCheckIn} />;
+        return <CheckInWidget onSubmit={today.submitCheckIn} />; // loading handled inside widget
 
       case 'generating':
         return <LoadingState message="Generating your workout…" />;
@@ -468,6 +487,17 @@ export default function TodayScreen() {
     day: 'numeric',
   }).toUpperCase().replace(',', ' ·');
 
+  // Show streak pill during check_in and workout_ready phases
+  const showStreakPill =
+    today.phase === 'check_in' || today.phase === 'workout_ready';
+
+  // Show phase badge below hero for all phases except loading and workout_completed
+  const showPhaseBadge =
+    today.phase !== 'loading' &&
+    today.phase !== 'workout_completed' &&
+    today.phaseNumber != null &&
+    today.phaseName != null;
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
@@ -494,8 +524,29 @@ export default function TodayScreen() {
 
         {today.phase !== 'workout_completed' && today.phase !== 'loading' && (
           <View style={styles.header}>
-            <Text style={styles.dateMeta}>{monoDateLabel}</Text>
+            {/* Row 1: date + streak pill */}
+            <View style={styles.headerTopRow}>
+              <Text style={styles.dateMeta}>{monoDateLabel}</Text>
+              {showStreakPill && today.streakCount != null && today.streakCount > 0 && (
+                <View style={styles.streakPill}>
+                  <View style={styles.streakDot} />
+                  <Text style={styles.streakText}>{today.streakCount}-DAY STREAK</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Row 2: hero title */}
             <Text style={styles.screenHero}>Today</Text>
+
+            {/* Row 3: phase badge */}
+            {showPhaseBadge && (
+              <View style={styles.phaseBadgeRow}>
+                <PhaseBadge
+                  phaseNumber={today.phaseNumber!}
+                  phaseName={today.phaseName!}
+                />
+              </View>
+            )}
           </View>
         )}
 
@@ -548,56 +599,87 @@ const styles = StyleSheet.create({
     gap: Spacing.space2,
   } as ViewStyle,
 
+  headerTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  } as ViewStyle,
+
   dateMeta: {
     fontFamily: FontFamily.mono,
     fontSize: 11,
     color: Colors.text.muted,
-    letterSpacing: 0.8,
+    letterSpacing: 0.44, // 0.04em at 11px
+    textTransform: 'uppercase',
+  } as TextStyle,
+
+  streakPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  } as ViewStyle,
+
+  streakDot: {
+    width: 6,
+    height: 6,
+    backgroundColor: Colors.moss,
+  } as ViewStyle,
+
+  streakText: {
+    fontFamily: FontFamily.mono,
+    fontSize: 11,
+    color: Colors.moss,
+    letterSpacing: 0.44,
     textTransform: 'uppercase',
   } as TextStyle,
 
   screenHero: {
     fontFamily: FontFamily.black,
     fontSize: 40,
-    lineHeight: 44,
-    letterSpacing: -1.2,
+    lineHeight: 39, // 0.98 × 40
+    letterSpacing: -1.4, // -0.035em at 40px
     color: Colors.text.primary,
+    marginTop: 12,
   } as TextStyle,
+
+  phaseBadgeRow: {
+    marginTop: 10,
+  } as ViewStyle,
 
   // ── Check-in ──────────────────────────────────────────────────────────────
 
-  checkInContainer: {
-    gap: Spacing.space5,
+  checkInContainer: {} as ViewStyle,
+
+  sectionIntro: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.border.strong,
+    paddingTop: 14,
+    gap: 5,
   } as ViewStyle,
 
-  sectionEyebrow: {
-    ...Typography.eyebrow,
-    color: Colors.text.muted,
-    marginBottom: -Spacing.space3,
-  } as TextStyle,
-
   sectionTitle: {
-    ...Typography.h2,
+    fontFamily: FontFamily.bold,
+    fontSize: 18,
+    lineHeight: 21.6, // 1.2 × 18
+    letterSpacing: -0.18, // -0.01em at 18px
     color: Colors.text.primary,
   } as TextStyle,
 
   sectionSubtitle: {
-    ...Typography.body,
+    fontFamily: FontFamily.regular,
+    fontSize: 14,
+    lineHeight: 21, // 1.5 × 14
     color: Colors.text.secondary,
-    marginTop: -Spacing.space3,
   } as TextStyle,
 
-  scaleBlock: {
-    gap: Spacing.space2,
+  scaleDivider: {
+    height: 1,
+    backgroundColor: Colors.border.faint,
+    marginVertical: 28,
   } as ViewStyle,
 
-  scaleEyebrow: {
-    ...Typography.eyebrow,
-    color: Colors.text.secondary,
-  } as TextStyle,
-
   checkInButton: {
-    marginTop: Spacing.space2,
+    marginTop: 32,
   } as ViewStyle,
 
   // ── Rest day ──────────────────────────────────────────────────────────────

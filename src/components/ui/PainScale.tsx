@@ -102,7 +102,7 @@ export function PainScale({
     <View style={styles.container}>
       {/* Label row: eyebrow label left, large value right */}
       <View style={styles.labelRow}>
-        <View>
+        <View style={styles.labelSide}>
           {label ? <Text style={styles.eyebrow}>{label}</Text> : null}
         </View>
         <Text style={[styles.valueText, { color }]}>{value}</Text>
@@ -162,8 +162,11 @@ const styles = StyleSheet.create({
 
   labelRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'flex-end',
+  } as ViewStyle,
+
+  labelSide: {
+    flex: 1,
   } as ViewStyle,
 
   eyebrow: {
@@ -178,8 +181,7 @@ const styles = StyleSheet.create({
   valueText: {
     fontFamily: 'Lato_900Black',
     fontSize: 56,
-    lineHeight: 50, // 0.9 × 56
-    letterSpacing: -2.24, // -0.04em at 56px
+    lineHeight: 64, // larger than fontSize so ascenders are never clipped
   } as TextStyle,
 
   hitArea: {

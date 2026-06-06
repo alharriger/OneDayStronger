@@ -13,11 +13,12 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
-import { getTodaySession, createSession, getCompletionHistory } from '@/services/sessions';
+import { getTodaySession, createSession } from '@/services/sessions';
 import { submitCheckIn, getTodayCheckIn } from '@/services/checkins';
 import { getWorkoutForSession, getMostRecentWorkout, getWorkoutLogWithExercises } from '@/services/workouts';
 import { getPendingSafetyEvent } from '@/services/safetyEvents';
 import { getActivePhase, getActivePlan } from '@/services/plans';
+import { getCompletionHistory } from '@/services/sessions';
 import { onPlanChanged } from '@/lib/planEvents';
 import {
   cacheWorkout,
@@ -87,6 +88,12 @@ export interface TodayState {
   safetyDetails: string | null;
   error: string | null;
   isRetryable: boolean;
+  /** Consecutive completed-day streak (available after first load). */
+  streakCount: number | null;
+  /** Active phase number for PhaseBadge display. */
+  phaseNumber: number | null;
+  /** Active phase name for PhaseBadge display. */
+  phaseName: string | null;
   // Actions
   submitCheckIn: (painLevel: number, sorenessLevel: number) => Promise<void>;
   retryWorkoutGeneration: () => Promise<void>;
@@ -128,6 +135,9 @@ export function useTodayWorkout(): TodayState {
   const [safetyDetails, setSafetyDetails] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isRetryable, setIsRetryable] = useState(false);
+  const [streakCount, setStreakCount] = useState<number | null>(null);
+  const [phaseNumber, setPhaseNumber] = useState<number | null>(null);
+  const [phaseName, setPhaseName] = useState<string | null>(null);
 
   // Set to true when a plan change fires while the Today tab may not be focused.
   // useFocusEffect reads and clears it on the next focus to guarantee a reinit.
@@ -221,8 +231,19 @@ export function useTodayWorkout(): TodayState {
     setPhase('loading');
 
     try {
-      // Check for pending safety advisory from a prior session
-      const pendingSafety = await getPendingSafetyEvent(user.id);
+      // Fetch safety check, streak, and phase meta in parallel — no serial latency added.
+      const [pendingSafety, history, activePhase] = await Promise.all([
+        getPendingSafetyEvent(user.id),
+        getCompletionHistory(user.id),
+        getActivePhase(user.id),
+      ]);
+
+      setStreakCount(history.streakCount);
+      if (activePhase) {
+        setPhaseNumber(activePhase.phase_number);
+        setPhaseName(activePhase.name);
+      }
+
       if (pendingSafety) {
         setSafetyEventId(pendingSafety.id);
         setSafetyDetails(pendingSafety.details);
@@ -233,8 +254,7 @@ export function useTodayWorkout(): TodayState {
       // Get or create today's session
       let session = await getTodaySession(user.id);
       if (!session) {
-        // Need an active phase to create a session
-        const activePhase = await getActivePhase(user.id);
+        // Reuse already-fetched activePhase — no duplicate DB call needed.
         if (!activePhase) {
           setError('No active recovery plan found. Please complete onboarding.');
           setIsRetryable(false);
@@ -583,6 +603,9 @@ export function useTodayWorkout(): TodayState {
     safetyDetails,
     error,
     isRetryable,
+    streakCount,
+    phaseNumber,
+    phaseName,
     submitCheckIn: handleSubmitCheckIn,
     retryWorkoutGeneration,
     acknowledgeSafety,

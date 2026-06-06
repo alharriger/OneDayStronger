@@ -18,6 +18,8 @@ interface ButtonProps {
   loading?: boolean;
   disabled?: boolean;
   style?: ViewStyle;
+  /** When provided, renders the button as a flex-row with label left and arrow right. */
+  arrow?: string;
 }
 
 export function Button({
@@ -27,8 +29,11 @@ export function Button({
   loading = false,
   disabled = false,
   style,
+  arrow,
 }: ButtonProps) {
   const isDisabled = disabled || loading;
+  const labelStyle = [styles.label, labelColor[variant], isDisabled && styles.labelDisabled] as const;
+  const arrowStyle = [styles.arrowText, labelColor[variant], isDisabled && styles.labelDisabled] as const;
 
   return (
     <TouchableOpacity
@@ -38,17 +43,26 @@ export function Button({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: isDisabled, busy: loading }}
-      style={[styles.base, styles[variant], isDisabled && styles.disabled, style]}
+      style={[
+        styles.base,
+        arrow ? styles.baseArrow : styles.baseCenter,
+        styles[variant],
+        isDisabled && styles.disabled,
+        style,
+      ]}
     >
       {loading ? (
         <ActivityIndicator
           color={variant === 'secondary' ? Colors.primary : Colors.text.onDark}
           size="small"
         />
+      ) : arrow ? (
+        <>
+          <Text style={labelStyle}>{label}</Text>
+          <Text style={arrowStyle}>{arrow}</Text>
+        </>
       ) : (
-        <Text style={[styles.label, labelColor[variant], isDisabled && styles.labelDisabled]}>
-          {label}
-        </Text>
+        <Text style={labelStyle}>{label}</Text>
       )}
     </TouchableOpacity>
   );
@@ -56,12 +70,24 @@ export function Button({
 
 const styles = StyleSheet.create({
   base: {
-    height: 48,
+    height: 52,
     borderRadius: Radius.none,
+    minWidth: 44,
+  } as ViewStyle,
+
+  // Centered layout (no arrow)
+  baseCenter: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: Spacing.space5,
-    minWidth: 44,
+  } as ViewStyle,
+
+  // Arrow layout — label left, arrow right
+  baseArrow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
   } as ViewStyle,
 
   // Hero — forward motion CTAs: Start workout, Begin session, Mark complete.
@@ -95,6 +121,12 @@ const styles = StyleSheet.create({
 
   label: {
     ...Typography.buttonLabel,
+  } as TextStyle,
+
+  arrowText: {
+    fontFamily: 'JetBrainsMono_400Regular',
+    fontSize: 16,
+    lineHeight: 16,
   } as TextStyle,
 
   labelDisabled: {
