@@ -94,9 +94,106 @@ override_note   text nullable
 **Status:** ✅ COMPLETE — covered by G1-G3 + A2.
 
 ### B5. UI design consistency pass — all screens to match completed workout page
-**What:** The completed workout screen (WorkoutCompletedView) established a refined visual language: mono date header, Lato 900 hero title, section eyebrows in caps, structured stat strips, left-stripe cards. All other app screens (Today check-in, Today workout view, Plan, Log Workout, onboarding) should be audited and updated to match this design language for a cohesive first-use experience.
-**Scope:** Audit each screen against the completed workout design reference. Apply consistent header pattern (mono date + hero title), typography scale, color token usage, and card/section structure. No new components unless truly necessary — update existing styles.
-**Constraint:** Do screens one at a time; each screen update is its own commit. Verify on device before moving to the next.
+**What:** Apply a consistent visual language across every screen using new designs created in Claude Design. Implement one group at a time; each item is its own commit, verified on device before moving to the next. Designs will be shared by the user before each group starts.
+
+**Status:** TODAY SCREENS — NEEDS REWORK. A first implementation pass was completed on branch `feature/b5-today-screens` but does not match the designs (see P9/P10 in pitfalls.md). Rework in progress.
+
+#### Required process for every B5 screen (non-negotiable after P9/P10):
+1. User re-shares the design file for the screen in the current conversation
+2. Extract full written spec before writing any code (every component, color, spacing, interaction)
+3. Identify shared components that appear on this screen and prior screens — build shared components as their own unit first
+4. Implement exactly one screen
+5. Run dev server, compare to design element-by-element, log every match/mismatch
+6. Fix all mismatches before committing
+7. Present audit log to user alongside implementation; user tests on device
+8. Only commit and move to next screen after user approval
+
+#### B5 Phase 0 Shared Components — ✅ COMPLETE (2026-06-06)
+
+Built and verified on device. Committed on `feature/b5-today-screens`.
+- **AppTabBar:** custom tab bar with 2px primary active indicator at top of active tab, hidden routes (`log-workout`, `post-workout-checkin`), correct Phosphor icons + Lato 700 uppercase labels
+- **PhaseBadge:** top/bottom 1px color borders spanning full card width, 6×6 dot, Lato 700 11px uppercase, primary/danger color variants
+- **PainScale:** custom PanResponder slider (replaces native slider), 56px right-aligned value, 28×28 square thumb with grip lines, 11-tick marks
+
+#### B5-T: Today Screen (IN PROGRESS)
+
+**B5-T1: Check-in state — ✅ COMPLETE (2026-06-06, commit dc2c02c)**
+All known issues resolved: phase badge below hero, lineStrong top border, correct typography, PainScale with square thumb + 56px right-aligned value + semantic fill colors, primary arrow button. Pitfall P11 added (negative letterSpacing clipping on iOS).
+
+---
+
+#### B5-T: Today Screen (NEEDS REWORK — designs shared, first pass rejected)
+
+**Known issues from first pass (all must be fixed):**
+
+**B5-T1: Check-in state (GenerateWorkout screen):**
+- Phase badge missing under hero header
+- Missing horizontal line separator
+- "How are you feeling today?" — wrong font size and weight
+- Body paragraph — wrong font/size
+- PainScale component: wrong thumb shape, value display wrong (number should be right-aligned), scale labels wrong
+- Button: text should be left-aligned with an icon, not centered
+- Slider and number colors wrong
+
+**B5-T2: Generating state — SKIPPED**
+No design file provided. Generating state stays as existing LoadingState component.
+
+**B5-T3: Today's Workout screen — IN PROGRESS**
+Implementation plan (confirmed 2026-06-06):
+- New StatStrip shared component (reused on B5-T5): flex row, N columns, top lineStrong border, bottom line border, each column has value (JBMono 500 22px) + optional unit (JBMono 600 11px primary) + label (eyebrow)
+- PreWorkoutRow: add tempo + isLast props; annotation format → `{LOAD} · TEMPO {TEMPO} · REST {REST}s` (JBMono 10px 0.06em uppercase); prescription format → `{n} × {reps}` (no "sets"); fix gap/padding
+- useTodayWorkout: add currentWeek (from started_at) + totalWeeks (from estimated_duration_weeks) — no new DB query
+- today.tsx WorkoutDisplay: remove left-border explanation card → collapsible plain text (3 lines, Read more toggle); add StatStrip; update exercise section header; PreWorkoutRow gets tempo + isLast; Button hero→primary + arrow; ghost CTA rebuild (44px, lineFaint border, space-between)
+- Header hero title: "Today's session." when workout_ready, "Today" otherwise
+- WEEK stat column hidden if currentWeek or totalWeeks is null
+
+**B5-T3: Workout display / Today's Workout screen:**
+- Hero text should say "Today's session" not "Today"
+- Phase badge missing under hero
+- Streak strip missing (appears below hero area)
+- Workout description: current left-border card does not match the design alert style
+- "By the numbers" stat section missing
+- Start workout button: wrong alignment (should be left-aligned with arrow icon), not centered
+- "Update this workout" row does not follow design
+
+**B5-T4: Log workout / In Progress screen:**
+- Date line missing from header
+- Title content wrong (user prefers "Today's Workout" label over what designs say for that field)
+- Phase badge missing
+- In-progress indicator missing
+- Checkbox marker on InProgressRow is wrong — remove the check box square from left side
+- Complete workout button: wrong alignment and color
+- Divider line between exercises missing
+
+**B5-T5: Post-workout check-in screen:**
+- Screen title wrong (hyphenated word, should match design wording)
+- Phase badge missing
+- PainScale sliders: wrong thumb selector, value numbers misaligned and miscolored
+- "By the numbers" stat strip missing the duration field
+- Log workout button: wrong color and alignment
+- Missing back button (needed in case user tapped Complete by accident)
+
+**B5-T6: Workout complete screen (existing, needs rework):**
+- "By the numbers" stat strip wrong, does not match design layout
+- Missing divider underneath "What you did" section
+- Checkmarks are circles — should be squares (matches design system: no border radius)
+- Next workout row missing the "Next workout" label
+- Streak bar direction wrong (should progress left-to-right with oldest on left)
+
+#### B5-P: Plan Pages (2 items)
+- **B5-P1: Plan page** — phase cards, accordion, phase badges, criteria row, jump UI
+- **B5-P2: Post-onboarding plan preview** — the plan summary screen shown immediately after plan generation during onboarding
+
+#### B5-O: Onboarding Flow (3 items)
+- **B5-O1: Welcome / landing page** — the entry point before sign-up/sign-in
+- **B5-O2: Intake pages 1–3** — first half of intake questions (injury description, onset, mechanism)
+- **B5-O3: Intake pages 4–6 + plan generation** — second half of intake + the generating/loading state during plan creation
+
+*Note: B5-O overlaps with B6 (pill selection). Implement B5-O first for visual design, then B6 for interaction redesign — or combine if designs already show pill selectors.*
+
+#### B5-S: Supporting Screens (2 items)
+- **B5-S1: Profile page** — user profile, injury status update, settings
+- **B5-S2: History page** — ⚠️ may not exist yet; confirm whether this is a new screen or an existing one. If new, scope includes creating the screen and its route before applying the design.
 
 ### B6. Intake/onboarding flow: replace open text fields with pill selection
 **What:** The current onboarding uses open text inputs for fields that have a known answer set (e.g. injury mechanism, activity level, goals). Replace these with tappable pill/chip selectors so the user never types in a free-text field unless the answer genuinely can't be enumerated.

@@ -128,6 +128,7 @@ function PhaseSection({ phase, isActive, isExpanded, onToggle, onStartHere }: Ph
             phaseNumber={phase.phase_number}
             phaseName={phase.name}
             isRegressed={phase.status === 'regressed_from'}
+            style={{ flex: 1 }}
           />
           {isExpanded ? (
             <CaretUp size={16} color={Colors.text.secondary} />

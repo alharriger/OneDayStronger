@@ -10,7 +10,7 @@
  *
  * On success: triggers evolve-plan edge function, then marks session completed.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { saveWorkoutLog } from '@/services/workouts';
@@ -84,17 +84,41 @@ export function useWorkoutLogging({
   const [error, setError] = useState<string | null>(null);
   const [isQueued, setIsQueued] = useState(false);
 
-  // Initialize exercise actuals — sets start at 0 so the user explicitly logs what they did
-  const [exerciseActuals, setExerciseActuals] = useState<ExerciseActuals[]>(
-    exercises.map((e) => ({
+  const buildActuals = (exs: typeof exercises): ExerciseActuals[] =>
+    exs.map((e) => ({
       exerciseId: e.exerciseId,
       exerciseName: e.exerciseName,
       setsCompleted: 0,
       repsPerSet: [],
       weightPerSet: [],
       modifications: '',
-    }))
+    }));
+
+  // Initialize exercise actuals — sets start at 0 so the user explicitly logs what they did
+  const [exerciseActuals, setExerciseActuals] = useState<ExerciseActuals[]>(() =>
+    buildActuals(exercises)
   );
+
+  // Keep a stable ref to exercises so the reset effect can read the latest value
+  // without including it as a dependency (exercises is reconstructed each render).
+  const exercisesRef = useRef(exercises);
+  exercisesRef.current = exercises;
+
+  // Reset all state when the session changes — handles React Navigation keeping
+  // the log-workout screen mounted across days so yesterday's progress doesn't persist.
+  const prevSessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevSessionIdRef.current !== null && prevSessionIdRef.current !== sessionId) {
+      setExerciseActuals(buildActuals(exercisesRef.current));
+      setPhase('form');
+      setDifficultyRating(5);
+      setPainDuringSession(0);
+      setSessionNotes('');
+      setError(null);
+      setIsQueued(false);
+    }
+    prevSessionIdRef.current = sessionId;
+  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setExerciseActual = useCallback((index: number, actuals: ExerciseActuals) => {
     setExerciseActuals((prev) => {

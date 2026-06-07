@@ -13,11 +13,12 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
-import { getTodaySession, createSession, getCompletionHistory } from '@/services/sessions';
+import { getTodaySession, createSession } from '@/services/sessions';
 import { submitCheckIn, getTodayCheckIn } from '@/services/checkins';
 import { getWorkoutForSession, getMostRecentWorkout, getWorkoutLogWithExercises } from '@/services/workouts';
 import { getPendingSafetyEvent } from '@/services/safetyEvents';
 import { getActivePhase, getActivePlan } from '@/services/plans';
+import { getCompletionHistory } from '@/services/sessions';
 import { onPlanChanged } from '@/lib/planEvents';
 import {
   cacheWorkout,
@@ -63,8 +64,10 @@ export interface CompletedExerciseRow {
   name: string;
   setsCompleted: number | null;
   totalReps: number | null;
+  repsPerSet: number[];
   prescribedSets: number | null;
   prescribedReps: string | null;
+  prescribedLoad: string | null;
 }
 
 export interface CompletedSessionData {
@@ -87,10 +90,21 @@ export interface TodayState {
   safetyDetails: string | null;
   error: string | null;
   isRetryable: boolean;
+  /** Consecutive completed-day streak (available after first load). */
+  streakCount: number | null;
+  /** Active phase number for PhaseBadge display. */
+  phaseNumber: number | null;
+  /** Active phase name for PhaseBadge display. */
+  phaseName: string | null;
+  /** Current week within the active phase (1-based); null if unknown. */
+  currentWeek: number | null;
+  /** Total weeks in the active phase; null if unknown. */
+  totalWeeks: number | null;
   // Actions
   submitCheckIn: (painLevel: number, sorenessLevel: number) => Promise<void>;
   retryWorkoutGeneration: () => Promise<void>;
   acknowledgeSafety: () => void;
+  requestWorkoutUpdate: (type: 'advance' | 'phase_back' | 'other', note?: string) => Promise<void>;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -127,6 +141,11 @@ export function useTodayWorkout(): TodayState {
   const [safetyDetails, setSafetyDetails] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isRetryable, setIsRetryable] = useState(false);
+  const [streakCount, setStreakCount] = useState<number | null>(null);
+  const [phaseNumber, setPhaseNumber] = useState<number | null>(null);
+  const [phaseName, setPhaseName] = useState<string | null>(null);
+  const [currentWeek, setCurrentWeek] = useState<number | null>(null);
+  const [totalWeeks, setTotalWeeks] = useState<number | null>(null);
 
   // Set to true when a plan change fires while the Today tab may not be focused.
   // useFocusEffect reads and clears it on the next focus to guarantee a reinit.
@@ -191,8 +210,10 @@ export function useTodayWorkout(): TodayState {
         name: prescribed.exercise_name,
         setsCompleted: logged?.sets_completed ?? null,
         totalReps: loggedTotalReps ?? estimatedTotalReps,
+        repsPerSet: repsArray,
         prescribedSets: prescribed.sets,
         prescribedReps: prescribed.reps,
+        prescribedLoad: prescribed.load || null,
       };
     });
 
@@ -220,8 +241,26 @@ export function useTodayWorkout(): TodayState {
     setPhase('loading');
 
     try {
-      // Check for pending safety advisory from a prior session
-      const pendingSafety = await getPendingSafetyEvent(user.id);
+      // Fetch safety check, streak, and phase meta in parallel — no serial latency added.
+      const [pendingSafety, history, activePhase] = await Promise.all([
+        getPendingSafetyEvent(user.id),
+        getCompletionHistory(user.id),
+        getActivePhase(user.id),
+      ]);
+
+      setStreakCount(history.streakCount);
+      if (activePhase) {
+        setPhaseNumber(activePhase.phase_number);
+        setPhaseName(activePhase.name);
+        if (activePhase.started_at && activePhase.estimated_duration_weeks) {
+          const diffDays = Math.floor(
+            (Date.now() - new Date(activePhase.started_at).getTime()) / 86400000
+          );
+          setCurrentWeek(Math.max(1, Math.ceil((diffDays + 1) / 7)));
+          setTotalWeeks(activePhase.estimated_duration_weeks);
+        }
+      }
+
       if (pendingSafety) {
         setSafetyEventId(pendingSafety.id);
         setSafetyDetails(pendingSafety.details);
@@ -232,8 +271,7 @@ export function useTodayWorkout(): TodayState {
       // Get or create today's session
       let session = await getTodaySession(user.id);
       if (!session) {
-        // Need an active phase to create a session
-        const activePhase = await getActivePhase(user.id);
+        // Reuse already-fetched activePhase — no duplicate DB call needed.
         if (!activePhase) {
           setError('No active recovery plan found. Please complete onboarding.');
           setIsRetryable(false);
@@ -582,6 +620,11 @@ export function useTodayWorkout(): TodayState {
     safetyDetails,
     error,
     isRetryable,
+    streakCount,
+    phaseNumber,
+    phaseName,
+    currentWeek,
+    totalWeeks,
     submitCheckIn: handleSubmitCheckIn,
     retryWorkoutGeneration,
     acknowledgeSafety,

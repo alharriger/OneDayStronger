@@ -138,3 +138,80 @@ User reported "Cannot read property 'color' of undefined". Traced: `revise-plan`
 - When a component renders data from a discriminated union or a keyed config object, always add a null guard before destructuring: `const entry = config[key]; if (!entry) return null;`
 - When an edge function writes a new `event_type` value to the DB, trace every consumer of that table to confirm none will break on the new value.
 - TypeScript casts (`as SomeType`) at data boundaries (DB → component) are a red flag — they suppress the compiler check that would have caught this. Prefer runtime filtering before the cast.
+
+---
+
+## P9 — Implementing UI screens from summarized design context produces implementations that don't match the designs
+
+**What went wrong:**
+The 7 Claude Design files (screens.jsx, components.jsx, README.md, etc.) were shared in a previous conversation. When that context was compressed, the file contents were reduced to high-level summary descriptions — approximate measurements, component names, and partial specs. The implementation was built entirely from those summaries. The result: every screen had systematic mismatches against the actual designs across typography, spacing, colors, component shapes, missing elements (phase badge, streak strip, "By the numbers" stat section), and interaction details (slider thumb shape, button alignment, active tab indicator).
+
+The specific elements missed in aggregate:
+- Phase badge component (missing on all screens)
+- Tab bar active indicator (2px primary rule at top of active tab)
+- PainScale: wrong thumb shape, wrong value alignment, wrong colors
+- Stat strip ("By the numbers") layout wrong on multiple screens
+- Typography sizes and weights off throughout
+- Button alignment, icon presence, and color variants wrong
+- Hero text content wrong on multiple screens
+- Streak bar direction inverted
+- Checkmarks rendered as circles (should be squares)
+- Multiple missing sections per screen
+
+**Why this is a test failure, not just a visual issue:**
+Design compliance for a UI feature IS the acceptance test. Shipping a screen that doesn't match the design is equivalent to shipping code where the tests fail — the feature is not done. The visual audit against the design must be run and passed before a UI commit is valid.
+
+**How to work going forward:**
+
+**Before starting any UI implementation session:**
+1. The user must re-share the design file(s) for the screen(s) being worked on. Summarized descriptions from a prior compressed session are not sufficient and must never be used as the sole spec.
+2. If design files are not in the current conversation, stop and ask for them. Do not proceed from memory or prior summaries.
+
+**Scope: one screen per implementation unit:**
+3. Implement exactly one screen per pull request or commit. Never implement 2+ screens in one session. Each screen has 10–30 individual design details; doing multiple at once guarantees misses.
+4. Before writing any code, extract a written spec from the design file: every component, every text style, every color token, every spacing value, every interaction. List them explicitly so they can be checked.
+
+**The visual audit is the test — run it before committing:**
+5. After implementing a screen, run the dev server and open the screen in the iOS simulator.
+6. Compare the running screen against the design file side-by-side, element by element. For each element record: ✅ matches / ❌ mismatch (with description). This audit log is part of the deliverable.
+7. Fix every mismatch before committing. Do not commit a screen with known visual failures.
+8. Present the audit results to the user alongside the implementation. Never claim a screen is complete without showing the audit.
+
+**Shared components first:**
+9. Before implementing any screen, identify components that appear on multiple screens (e.g., the phase badge, the pain scale, the stat strip). Build those shared components correctly once, then reference them in every screen. Never inline a shared component in one screen and duplicate it in another.
+
+---
+
+## P11 — Negative `letterSpacing` on large Text nodes causes right-side glyph clipping on iOS
+
+**What went wrong:**
+`PainScale` used `letterSpacing: -2.24` (`-0.04em` at 56px) on a large Lato 900 Black value number. The number was visibly cut off on the right side. Three fix attempts were made before the root cause was understood:
+1. `paddingRight: 4` on the parent View — wrong level, didn't help
+2. `marginRight: 6` on the Text — external to the text frame, didn't help
+3. Only after forced diagnosis: root cause identified and resolved
+
+**Root cause:**
+In React Native on iOS, negative `letterSpacing` causes the Text node's layout frame to be computed as `glyph_advance_width + letterSpacing` (narrower than the natural advance width). The glyph ink still extends to the full natural advance width. On iOS, text renders within its computed layout frame — ink beyond the right frame boundary is clipped. `marginRight` creates space outside the text frame and has no effect on this clipping. `paddingRight` on the Text itself would expand the frame, but the cleanest fix is to simply remove the negative letterSpacing.
+
+**How to work going forward:**
+- Do not apply negative `letterSpacing` to Text nodes with `fontSize` ≥ 24px. The tight-tracking effect is barely perceptible at large sizes and is not worth the clipping risk.
+- If negative letterSpacing is required by design at large sizes, use `paddingRight` on the Text element (not `marginRight`, not padding on the parent) to expand the text frame.
+- When a glyph appears clipped on one side, diagnose the clip boundary before trying fixes: is it the text node's own frame, a parent View boundary, or the ScrollView? `marginRight`/`paddingRight` on a parent and `paddingRight` on the text itself are different operations with different effects.
+
+---
+
+## P10 — Trying to go fast by doing too much at once is slower than doing one thing correctly
+
+**What went wrong:**
+B5-T (Today screen UI consistency) was scoped as 5 screens + 4 new components + tab bar + navigation changes, all implemented in a single session without the user reviewing intermediate results. The belief was that batching would be faster. The actual result: every screen had mismatches, every screen needs rework, and the total time spent will be 2–3× what a screen-by-screen approach would have taken.
+
+**Why batching UI work backfires:**
+- Design details compound: each screen has ~20 details; 5 screens = ~100 details. At scale, missed details are inevitable.
+- No intermediate feedback: the user catches issues at the end, not during. All rework lands at once.
+- Context is finite: implementing 5 screens while holding the design spec for all 5 in working memory means the spec for each screen gets less attention.
+
+**How to work going forward:**
+- The unit of UI work is one screen. Plan → confirm → implement → audit → user tests → commit. One screen at a time.
+- "Moving fast" in UI work means: never rework. One correct screen in one session beats five wrong screens that each need a fix pass.
+- If a session is scoped for multiple screens, treat them as sequential: finish and ship screen 1 before starting screen 2. Never parallelize screen implementations.
+- Shared components (like phase badge, stat strip) are an exception: they should be built first as their own unit of work before any screen work begins, since every screen depends on them.

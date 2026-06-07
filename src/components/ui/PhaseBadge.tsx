@@ -1,25 +1,21 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
-import { Colors, Typography, Radius, Spacing } from '@/theme';
+import { Colors } from '@/theme';
 
 interface PhaseBadgeProps {
   phaseNumber: number;
   phaseName: string;
   isRegressed?: boolean;
+  style?: ViewStyle;
 }
 
-export function PhaseBadge({ phaseNumber, phaseName, isRegressed = false }: PhaseBadgeProps) {
+export function PhaseBadge({ phaseNumber, phaseName, isRegressed = false, style }: PhaseBadgeProps) {
   const color = isRegressed ? Colors.semantic.danger : Colors.primary;
-  const backgroundColor = isRegressed
-    ? `${Colors.semantic.danger}1F` // 12% opacity
-    : `${Colors.primary}1F`;
 
   return (
-    <View style={[styles.badge, { backgroundColor }]}>
-      <Text
-        style={[styles.text, { color: isRegressed ? Colors.semantic.danger : Colors.primaryDark }]}
-        numberOfLines={1}
-      >
+    <View style={[styles.container, { borderTopColor: color, borderBottomColor: color }, style]}>
+      <View style={[styles.dot, { backgroundColor: color }]} />
+      <Text style={[styles.text, { color }]}>
         Phase {phaseNumber} · {phaseName}
       </Text>
     </View>
@@ -27,15 +23,26 @@ export function PhaseBadge({ phaseNumber, phaseName, isRegressed = false }: Phas
 }
 
 const styles = StyleSheet.create({
-  badge: {
-    alignSelf: 'flex-start',
-    flexShrink: 1,
-    borderRadius: Radius.none,
-    paddingVertical: Spacing.space1,
-    paddingHorizontal: Spacing.space2,
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+    paddingRight: 12,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+  } as ViewStyle,
+
+  dot: {
+    width: 6,
+    height: 6,
   } as ViewStyle,
 
   text: {
-    ...Typography.label,
+    fontFamily: 'Lato_700Bold',
+    fontSize: 11,
+    lineHeight: 11,
+    letterSpacing: 1.76, // 0.16em at 11px
+    textTransform: 'uppercase',
   } as TextStyle,
 });
