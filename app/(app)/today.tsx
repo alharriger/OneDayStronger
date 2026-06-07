@@ -345,9 +345,11 @@ function WorkoutCompletedView({ completedData, evolutionBanner }: WorkoutComplet
                     </Text>
                     <View style={completedStyles.exerciseMeta}>
                       <Text style={completedStyles.exerciseName}>{ex.name}</Text>
-                      <Text style={completedStyles.exerciseDetail} numberOfLines={1}>
-                        {formatExerciseMeta(0, ex.prescribedSets, ex.prescribedLoad)}
-                      </Text>
+                      {ex.prescribedLoad ? (
+                        <Text style={completedStyles.exerciseDetail} numberOfLines={1}>
+                          {ex.prescribedLoad.toUpperCase()}
+                        </Text>
+                      ) : null}
                     </View>
                     <View style={completedStyles.exercisePrescription}>
                       <Text style={completedStyles.exercisePrescriptionText}>
