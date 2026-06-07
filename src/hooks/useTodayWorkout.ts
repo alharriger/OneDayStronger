@@ -64,8 +64,10 @@ export interface CompletedExerciseRow {
   name: string;
   setsCompleted: number | null;
   totalReps: number | null;
+  repsPerSet: number[];
   prescribedSets: number | null;
   prescribedReps: string | null;
+  prescribedLoad: string | null;
 }
 
 export interface CompletedSessionData {
@@ -208,8 +210,10 @@ export function useTodayWorkout(): TodayState {
         name: prescribed.exercise_name,
         setsCompleted: logged?.sets_completed ?? null,
         totalReps: loggedTotalReps ?? estimatedTotalReps,
+        repsPerSet: repsArray,
         prescribedSets: prescribed.sets,
         prescribedReps: prescribed.reps,
+        prescribedLoad: prescribed.load || null,
       };
     });
 
