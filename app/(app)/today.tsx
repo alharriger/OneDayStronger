@@ -124,13 +124,13 @@ function RestDayCard({ explanation }: RestDayCardProps) {
 
 // ─── Workout completed view ───────────────────────────────────────────────────
 
-function formatExerciseMeta(repsPerSet: number[], prescribedReps: string | null, prescribedLoad: string | null): string {
-  const isTime = prescribedReps ? /\d+\s*(s|sec|seconds?)\b/i.test(prescribedReps) : false;
-  const unit = isTime ? 'S' : 'REPS';
-  const parts: string[] = [];
-  if (repsPerSet.length > 0) parts.push(`${repsPerSet.join(' · ')} ${unit}`);
+function formatExerciseMeta(setsCompleted: number, prescribedSets: number | null, prescribedLoad: string | null): string {
+  const setsStr = prescribedSets != null
+    ? `${setsCompleted}/${prescribedSets} SETS`
+    : `${setsCompleted} SETS`;
+  const parts: string[] = [setsStr];
   if (prescribedLoad) parts.push(prescribedLoad.toUpperCase());
-  return parts.join(' · ') || '–';
+  return parts.join(' · ');
 }
 
 function formatPrescriptionChip(sets: number | null, reps: string | null): string {
@@ -211,7 +211,10 @@ function WorkoutCompletedView({ completedData, evolutionBanner }: WorkoutComplet
       unit: completedData?.durationMinutes != null ? 'MIN' : undefined,
       label: 'DURATION',
     },
-    { value: completedData?.totalReps ?? '–', label: 'TOTAL REPS' },
+    {
+      value: completedData?.exercises.reduce((sum, ex) => sum + (ex.setsCompleted ?? 0), 0) ?? '–',
+      label: 'SETS',
+    },
     {
       value: completedData?.painAtCheckin != null ? completedData.painAtCheckin : '–',
       unit: completedData?.painAtCheckin != null ? '/10' : undefined,
@@ -269,46 +272,101 @@ function WorkoutCompletedView({ completedData, evolutionBanner }: WorkoutComplet
       <StatStrip items={statItems} />
 
       {/* 4. Exercise list */}
-      {completedData && completedData.exercises.length > 0 && (
-        <View>
-          <View style={completedStyles.exerciseSectionHeader}>
-            <Text style={completedStyles.exerciseSectionEyebrow}>What you did</Text>
-          </View>
-          <View style={completedStyles.exerciseSectionDivider} />
-          {completedData.exercises.map((ex, i) => (
-            <View
-              key={ex.name}
-              style={[
-                completedStyles.exerciseRow,
-                i === completedData.exercises.length - 1 && completedStyles.exerciseRowLast,
-              ]}
-            >
-              <Text style={completedStyles.exerciseIndex}>
-                {String(i + 1).padStart(2, '0')}
-              </Text>
-              <View style={completedStyles.exerciseMeta}>
-                <Text style={completedStyles.exerciseName}>{ex.name}</Text>
-                <Text style={completedStyles.exerciseDetail} numberOfLines={1}>
-                  {formatExerciseMeta(ex.repsPerSet, ex.prescribedReps, ex.prescribedLoad)}
-                </Text>
+      {completedData && completedData.exercises.length > 0 && (() => {
+        const doneExercises = completedData.exercises.filter(ex => (ex.setsCompleted ?? 0) > 0);
+        const skippedExercises = completedData.exercises.filter(ex => (ex.setsCompleted ?? 0) === 0);
+        return (
+          <>
+            {doneExercises.length > 0 && (
+              <View>
+                <View style={completedStyles.exerciseSectionHeader}>
+                  <Text style={completedStyles.exerciseSectionEyebrow}>What you did</Text>
+                </View>
+                <View style={completedStyles.exerciseSectionDivider} />
+                {doneExercises.map((ex, i) => {
+                  const isFullyDone = (ex.setsCompleted ?? 0) >= (ex.prescribedSets ?? Infinity);
+                  return (
+                    <View
+                      key={ex.name}
+                      style={[
+                        completedStyles.exerciseRow,
+                        i === doneExercises.length - 1 && completedStyles.exerciseRowLast,
+                      ]}
+                    >
+                      <Text style={completedStyles.exerciseIndex}>
+                        {String(i + 1).padStart(2, '0')}
+                      </Text>
+                      <View style={completedStyles.exerciseMeta}>
+                        <Text style={completedStyles.exerciseName}>{ex.name}</Text>
+                        <Text style={completedStyles.exerciseDetail} numberOfLines={1}>
+                          {formatExerciseMeta(ex.setsCompleted ?? 0, ex.prescribedSets, ex.prescribedLoad)}
+                        </Text>
+                      </View>
+                      <View style={completedStyles.exercisePrescription}>
+                        <Text style={completedStyles.exercisePrescriptionText}>
+                          {formatPrescriptionChip(ex.prescribedSets, ex.prescribedReps)}
+                        </Text>
+                        {ex.prescribedLoad && (
+                          <Text style={completedStyles.exercisePrescriptionLoad}>
+                            {ex.prescribedLoad.toUpperCase()}
+                          </Text>
+                        )}
+                      </View>
+                      {isFullyDone ? (
+                        <View style={completedStyles.exerciseCheckSquare}>
+                          <Check size={10} color={Colors.text.onDark} weight="bold" />
+                        </View>
+                      ) : (
+                        <View style={{ width: 18 }} />
+                      )}
+                    </View>
+                  );
+                })}
               </View>
-              <View style={completedStyles.exercisePrescription}>
-                <Text style={completedStyles.exercisePrescriptionText}>
-                  {formatPrescriptionChip(ex.prescribedSets, ex.prescribedReps)}
-                </Text>
-                {ex.prescribedLoad && (
-                  <Text style={completedStyles.exercisePrescriptionLoad}>
-                    {ex.prescribedLoad.toUpperCase()}
-                  </Text>
-                )}
+            )}
+
+            {skippedExercises.length > 0 && (
+              <View style={completedStyles.skippedSection}>
+                <View style={completedStyles.exerciseSectionHeader}>
+                  <Text style={completedStyles.exerciseSkippedEyebrow}>Skipped this session</Text>
+                </View>
+                <View style={completedStyles.exerciseSectionDivider} />
+                {skippedExercises.map((ex, i) => (
+                  <View
+                    key={ex.name}
+                    style={[
+                      completedStyles.exerciseRow,
+                      completedStyles.exerciseRowSkipped,
+                      i === skippedExercises.length - 1 && completedStyles.exerciseRowLast,
+                    ]}
+                  >
+                    <Text style={[completedStyles.exerciseIndex, completedStyles.exerciseIndexMuted]}>
+                      {String(i + 1).padStart(2, '0')}
+                    </Text>
+                    <View style={completedStyles.exerciseMeta}>
+                      <Text style={completedStyles.exerciseName}>{ex.name}</Text>
+                      <Text style={completedStyles.exerciseDetail} numberOfLines={1}>
+                        {formatExerciseMeta(0, ex.prescribedSets, ex.prescribedLoad)}
+                      </Text>
+                    </View>
+                    <View style={completedStyles.exercisePrescription}>
+                      <Text style={completedStyles.exercisePrescriptionText}>
+                        {formatPrescriptionChip(ex.prescribedSets, ex.prescribedReps)}
+                      </Text>
+                      {ex.prescribedLoad && (
+                        <Text style={completedStyles.exercisePrescriptionLoad}>
+                          {ex.prescribedLoad.toUpperCase()}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={{ width: 18 }} />
+                  </View>
+                ))}
               </View>
-              <View style={completedStyles.exerciseCheckSquare}>
-                <Check size={10} color={Colors.text.onDark} weight="bold" />
-              </View>
-            </View>
-          ))}
-        </View>
-      )}
+            )}
+          </>
+        );
+      })()}
 
       {/* 5. Evolution banner (inline, no dismiss) */}
       {evolutionBanner && (
@@ -1172,6 +1230,24 @@ const completedStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   } as ViewStyle,
+
+  skippedSection: {
+    marginTop: 4,
+  } as ViewStyle,
+
+  exerciseSkippedEyebrow: {
+    ...Typography.eyebrow,
+    color: Colors.text.muted,
+  } as TextStyle,
+
+  exerciseRowSkipped: {
+    opacity: 0.55,
+  } as ViewStyle,
+
+  exerciseIndexMuted: {
+    color: Colors.text.muted,
+    opacity: 0.7,
+  } as TextStyle,
 
   // ── Evolution card ────────────────────────────────────────────────────────
 
