@@ -63,6 +63,16 @@ Every feature must follow this sequence. No step may be skipped, including on si
 6. **Commit/push** — Once both parties are satisfied, commit. Push and merge to `main` when the feature is complete.
 7. **Retrospective** — Document what went wrong (if anything), any new pitfalls, process improvements. Present draft to user for approval before updating memory. **Mandatory — never skip, even on a clean run.**
 
+### Error Troubleshooting Process
+
+When any error is found during development (test failure, device bug, visual regression), follow this sequence. Never skip steps or jump straight to a fix.
+
+1. **Trace** — Read the full execution path: the component, its parents, its hooks, and any shared utilities it touches. Do not diagnose from memory or assumptions.
+2. **Identify all sources** — Determine every place that could contribute to the failure. Do not stop at the first plausible cause.
+3. **Log in pitfalls** — Before fixing, decide whether this class of error is worth a pitfall entry. If the root cause was non-obvious or the diagnostic path was roundabout, it belongs in `ai_docs/pitfalls.md`.
+4. **Fix** — Implement the fix informed by the trace. If the fix requires a product-level decision (what state to preserve, what to delete), state the assumption and get confirmation.
+5. **Learn** — After the fix, update memory and/or CLAUDE.md if the error reveals a gap in the current rules or process.
+
 ### Branching
 
 Always create a new branch for each feature. Never develop directly on `main`. Merge to `main` only when the feature is complete and all tests pass.

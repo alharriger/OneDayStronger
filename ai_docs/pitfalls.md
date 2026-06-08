@@ -215,3 +215,33 @@ B5-T (Today screen UI consistency) was scoped as 5 screens + 4 new components + 
 - "Moving fast" in UI work means: never rework. One correct screen in one session beats five wrong screens that each need a fix pass.
 - If a session is scoped for multiple screens, treat them as sequential: finish and ship screen 1 before starting screen 2. Never parallelize screen implementations.
 - Shared components (like phase badge, stat strip) are an exception: they should be built first as their own unit of work before any screen work begins, since every screen depends on them.
+
+---
+
+## P12 — `lineHeight < fontSize` clips text ascenders on iOS
+
+**What went wrong:**
+Welcome screen hero title used `lineHeight: 72 * 0.91 = 65.5` (less than `fontSize: 72`). The tops of "One Day" / "Stronger." were visibly clipped. The HTML/CSS design prototype showed no clipping because CSS `line-height` only controls leading — it does not clip rendered glyphs. React Native's `Text` component uses `lineHeight` as its actual layout height, and iOS clips to that boundary. At 72px, ascenders extend ~6px above the layout box and are cut off.
+
+**Root cause:**
+`Text` component height = `lineHeight`. When `lineHeight < fontSize`, glyph ascenders extend above the layout height and are clipped by iOS.
+
+**How to work going forward:**
+- `lineHeight` must be `>= fontSize` for all `Text` elements. This is a hard floor, not a guideline.
+- To achieve tight visual spacing between two separate `Text` lines, use `marginTop` (negative) on the second line rather than setting `lineHeight` below `fontSize`.
+- This constraint does not apply in HTML/CSS design prototypes — never port a CSS `line-height < 1` value directly to React Native without checking it against this rule.
+
+---
+
+## P13 — `Animated.loop` inside a component breaks `jest.useFakeTimers()` tests
+
+**What went wrong:**
+`SpinnerRing` was defined inline in `plan-generation.tsx`. It used `Animated.loop(Animated.timing(..., { duration: 900 }))` started in a `useEffect`. The plan generation tests use `jest.useFakeTimers()` and `jest.advanceTimersByTimeAsync(11000)` to skip the 10-second auto-retry delay. The looping animation created recurring RAF callbacks in the JS layer. When fake timers advanced 11 seconds, the animation's ~12 loop iterations consumed timer budget and the 10-second `setTimeout` delay never resolved correctly. 6 of 9 error-state tests failed silently — they never reached the error UI.
+
+**Root cause:**
+`Animated.loop` with `useNativeDriver: true` falls back to JS-based RAF in Jest (no native bridge). Fake timers intercept RAF. The animation's repeated short-duration timers saturate the fake clock before the test's intentional long delay can fire.
+
+**How to work going forward:**
+- Any component that uses `Animated.loop` must live in its own file so tests that need fake timers can mock it: `jest.mock('@/components/ui/SpinnerRing', () => ({ SpinnerRing: () => null }))`.
+- When a test uses `jest.useFakeTimers()` and an async flow suddenly stops reaching its expected state, check for looping animations in the component tree — they are the likely culprit.
+- `Animated.timing` (non-looping, one-shot) does not exhibit this problem and can stay inline.

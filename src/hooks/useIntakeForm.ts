@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useAuth } from './useAuth';
 import { saveInjuryIntake, saveInjuryStatus } from '@/services/intake';
-import { updateOnboardingStep } from '@/services/profiles';
+import { updateOnboardingStep, updateProfile } from '@/services/profiles';
 import type { Database } from '@/lib/database.types';
 
 // ─── Step definitions ────────────────────────────────────────────────────────
@@ -10,29 +10,56 @@ export const INTAKE_TOTAL_STEPS = 4;
 
 export type IntakeStep = 1 | 2 | 3 | 4;
 
-// Step 1: Basic info
+// Age bracket → representative midpoint integer for the profiles.age column
+const AGE_BRACKET_MIDPOINT: Record<string, number> = {
+  u25: 22,
+  '25-34': 30,
+  '35-44': 40,
+  '45-54': 50,
+  '55-64': 60,
+  '65plus': 68,
+};
+
+// Design mechanism values → DB enum values
+const MECHANISM_MAP: Record<string, Database['public']['Tables']['injury_intake']['Row']['mechanism']> = {
+  gradual: 'gradual',
+  acute: 'acute',
+  postsurg: 'post_surgery',
+  unsure: 'unknown',
+};
+
+// Design goal values → DB enum values
+const GOAL_MAP: Record<string, Database['public']['Tables']['profiles']['Row']['rehab_goal']> = {
+  daily: 'pain_free_daily',
+  running: 'return_to_running',
+  sport: 'return_to_sport',
+  other: 'other',
+};
+
+// Step 1: About you
 export interface Step1Data {
-  age: string;        // stored as string for TextInput, parsed on submit
-  gender: string;
+  age_bracket: string;    // 'u25' | '25-34' | '35-44' | '45-54' | '55-64' | '65plus'
+  gender: string;         // 'female' | 'male' | 'nonbinary' | 'prefer_not'
+  activity_level: string; // 'sedentary' | 'recreational' | 'regular' | 'competitive'
 }
 
-// Step 2: Injury history
+// Step 2: Your injury
 export interface Step2Data {
-  injury_onset_date: string;  // ISO date string YYYY-MM-DD
-  mechanism: Database['public']['Tables']['injury_intake']['Row']['mechanism'];
+  symptom_duration: string;  // 'u1m' | '1-3m' | '3-6m' | '6-12m' | '1-2y' | '2yplus'
+  mechanism: string;         // 'gradual' | 'acute' | 'postsurg' | 'unsure'
+  treatments: string[];      // optional multi-select
 }
 
-// Step 3: Treatment & background
+// Step 3: How you feel
 export interface Step3Data {
-  prior_treatment: string;
-  training_background: string;
+  irritability_level: 'low' | 'moderate' | 'high' | null;
+  pain_level_baseline: number;  // 0–10, defaults to 0
+  symptoms: string[];           // optional multi-select
 }
 
-// Step 4: Current status
+// Step 4: Your goal
 export interface Step4Data {
-  irritability_level: Database['public']['Tables']['injury_intake']['Row']['irritability_level'];
-  pain_level_baseline: number;  // 0–10 from PainScale
-  current_symptoms: string;
+  goal: string;  // 'daily' | 'running' | 'sport' | 'other'
 }
 
 export interface IntakeFormData {
@@ -43,47 +70,31 @@ export interface IntakeFormData {
 }
 
 const initialFormData: IntakeFormData = {
-  step1: { age: '', gender: '' },
-  step2: { injury_onset_date: '', mechanism: null },
-  step3: { prior_treatment: '', training_background: '' },
-  step4: { irritability_level: null, pain_level_baseline: 3, current_symptoms: '' },
+  step1: { age_bracket: '', gender: '', activity_level: '' },
+  step2: { symptom_duration: '', mechanism: '', treatments: [] },
+  step3: { irritability_level: null, pain_level_baseline: 0, symptoms: [] },
+  step4: { goal: '' },
 };
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
 function validateStep(step: IntakeStep, data: IntakeFormData): string | null {
   switch (step) {
-    case 1: {
-      const age = parseInt(data.step1.age, 10);
-      if (!data.step1.age || isNaN(age) || age < 16 || age > 100) {
-        return 'Please enter a valid age (16–100).';
-      }
-      if (!data.step1.gender) {
-        return 'Please select a gender.';
-      }
+    case 1:
+      if (!data.step1.age_bracket) return 'Please select your age range.';
+      if (!data.step1.gender) return 'Please select a gender.';
+      if (!data.step1.activity_level) return 'Please select your activity level.';
       return null;
-    }
-    case 2: {
-      if (!data.step2.injury_onset_date) {
-        return 'Please enter when your injury started.';
-      }
-      if (!data.step2.mechanism) {
-        return 'Please select how your injury occurred.';
-      }
+    case 2:
+      if (!data.step2.symptom_duration) return 'Please select how long you have had symptoms.';
+      if (!data.step2.mechanism) return 'Please select how your injury started.';
       return null;
-    }
-    case 3: {
-      if (!data.step3.training_background.trim()) {
-        return 'Please describe your training background.';
-      }
+    case 3:
+      if (!data.step3.irritability_level) return 'Please select your irritability level.';
       return null;
-    }
-    case 4: {
-      if (!data.step4.irritability_level) {
-        return 'Please select your irritability level.';
-      }
+    case 4:
+      if (!data.step4.goal) return 'Please select a goal.';
       return null;
-    }
   }
 }
 
@@ -162,11 +173,13 @@ export function useIntakeForm(): UseIntakeFormReturn {
 
     const { error: intakeError } = await saveInjuryIntake({
       user_id: user.id,
-      injury_onset_date: formData.step2.injury_onset_date || null,
-      mechanism: formData.step2.mechanism,
-      prior_treatment: formData.step3.prior_treatment.trim() || null,
-      irritability_level: formData.step4.irritability_level,
-      training_background: formData.step3.training_background.trim() || null,
+      injury_onset_date: formData.step2.symptom_duration || null,
+      mechanism: MECHANISM_MAP[formData.step2.mechanism] ?? null,
+      prior_treatment: formData.step2.treatments.length > 0
+        ? formData.step2.treatments.join(', ')
+        : null,
+      irritability_level: formData.step3.irritability_level,
+      training_background: formData.step1.activity_level || null,
     });
 
     if (intakeError) {
@@ -176,8 +189,10 @@ export function useIntakeForm(): UseIntakeFormReturn {
 
     const { error: statusError } = await saveInjuryStatus({
       user_id: user.id,
-      pain_level_baseline: formData.step4.pain_level_baseline,
-      current_symptoms: formData.step4.current_symptoms.trim() || null,
+      pain_level_baseline: formData.step3.pain_level_baseline,
+      current_symptoms: formData.step3.symptoms.length > 0
+        ? formData.step3.symptoms.join(', ')
+        : null,
     });
 
     if (statusError) {
@@ -185,11 +200,22 @@ export function useIntakeForm(): UseIntakeFormReturn {
       return { error: statusError };
     }
 
-    // Advance onboarding_step to 'goal' so the guard routes to goal-selection
-    const { error: profileError } = await updateOnboardingStep(user.id, 'goal');
+    const { error: profileError } = await updateProfile(user.id, {
+      age: AGE_BRACKET_MIDPOINT[formData.step1.age_bracket] ?? null,
+      gender: formData.step1.gender || null,
+      rehab_goal: GOAL_MAP[formData.step4.goal] ?? null,
+    });
+
+    if (profileError) {
+      setIsSubmitting(false);
+      return { error: profileError };
+    }
+
+    // Advance directly to 'generating' — goal is now collected in step 4
+    const { error: stepError } = await updateOnboardingStep(user.id, 'generating');
 
     setIsSubmitting(false);
-    return { error: profileError };
+    return { error: stepError };
   }, [user, currentStep, formData]);
 
   return {
