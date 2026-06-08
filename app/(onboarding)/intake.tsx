@@ -8,75 +8,207 @@ import {
   Alert,
   ViewStyle,
   TextStyle,
-  Platform,
-  InputAccessoryView,
-  Keyboard,
 } from 'react-native';
-
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  Button,
-  FormField,
-  SegmentedSelector,
-  PainScale,
-} from '@/components/ui';
-import { Colors, Typography, Spacing } from '@/theme';
+import { Button, PainScale } from '@/components/ui';
+import { Colors, Typography, Spacing, FontFamily } from '@/theme';
 import {
   useIntakeForm,
   INTAKE_TOTAL_STEPS,
-  type IntakeStep,
 } from '@/hooks/useIntakeForm';
+import type { Database } from '@/lib/database.types';
 
-// iOS-only: nativeID for the age input accessory toolbar
-const AGE_ACCESSORY_ID = 'intake-age-done';
+// ─── Local selection components ───────────────────────────────────────────────
 
-// ─── Step progress dots ───────────────────────────────────────────────────────
+interface PillOption {
+  value: string;
+  label: string;
+}
 
-function StepDots({ current, total }: { current: IntakeStep; total: number }) {
+function OBPills({ options, value, onChange, cols = 2 }: {
+  options: PillOption[];
+  value: string;
+  onChange: (v: string) => void;
+  cols?: number;
+}) {
+  const rows: PillOption[][] = [];
+  for (let i = 0; i < options.length; i += cols) {
+    rows.push(options.slice(i, i + cols));
+  }
   return (
-    <View
-      style={dots.row}
-      accessibilityLabel={`Step ${current} of ${total}`}
-    >
-      {Array.from({ length: total }, (_, i) => (
+    <View style={pillStyles.grid}>
+      {rows.map((row, rowIdx) => (
+        <View key={rowIdx} style={pillStyles.gridRow}>
+          {row.map((o) => {
+            const selected = o.value === value;
+            return (
+              <TouchableOpacity
+                key={o.value}
+                onPress={() => onChange(o.value)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                accessibilityLabel={o.label}
+                style={[pillStyles.pill, selected && pillStyles.pillSelected]}
+              >
+                <Text style={[pillStyles.pillLabel, selected && pillStyles.pillLabelSelected]}>
+                  {o.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+          {Array.from({ length: cols - row.length }, (_, i) => (
+            <View key={`sp-${i}`} style={pillStyles.pillSpacer} />
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const pillStyles = StyleSheet.create({
+  grid: {
+    gap: 8,
+  } as ViewStyle,
+  gridRow: {
+    flexDirection: 'row',
+    gap: 8,
+  } as ViewStyle,
+  pill: {
+    flex: 1,
+    height: 44,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
+    backgroundColor: 'transparent',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+  } as ViewStyle,
+  pillSpacer: {
+    flex: 1,
+  } as ViewStyle,
+  pillSelected: {
+    backgroundColor: 'rgba(78,107,130,0.80)',
+    borderColor: Colors.primary,
+  } as ViewStyle,
+  pillLabel: {
+    fontFamily: FontFamily.regular,
+    fontSize: 13,
+    color: Colors.text.primary,
+  } as TextStyle,
+  pillLabelSelected: {
+    fontFamily: FontFamily.bold,
+    color: Colors.text.onDark,
+    letterSpacing: 0.13,
+  } as TextStyle,
+});
+
+function OBChips({ options, value, onChange }: {
+  options: PillOption[];
+  value: string[];
+  onChange: (v: string[]) => void;
+}) {
+  const toggle = (v: string) => {
+    onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+  };
+  return (
+    <View style={chipStyles.row}>
+      {options.map((o) => {
+        const selected = value.includes(o.value);
+        return (
+          <TouchableOpacity
+            key={o.value}
+            onPress={() => toggle(o.value)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: selected }}
+            accessibilityLabel={o.label}
+            style={[chipStyles.chip, selected && chipStyles.chipSelected]}
+          >
+            <Text style={[chipStyles.chipLabel, selected && chipStyles.chipLabelSelected]}>
+              {o.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+const chipStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  } as ViewStyle,
+  chip: {
+    height: 36,
+    paddingHorizontal: 13,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  } as ViewStyle,
+  chipSelected: {
+    backgroundColor: 'rgba(78,107,130,0.80)',
+    borderColor: Colors.primary,
+  } as ViewStyle,
+  chipLabel: {
+    fontFamily: FontFamily.regular,
+    fontSize: 12,
+    color: Colors.text.secondary,
+  } as TextStyle,
+  chipLabelSelected: {
+    fontFamily: FontFamily.bold,
+    color: Colors.text.onDark,
+  } as TextStyle,
+});
+
+// ─── Shell components ─────────────────────────────────────────────────────────
+
+function ProgressBars({ step }: { step: number }) {
+  return (
+    <View style={shellStyles.progressRow}>
+      {Array.from({ length: INTAKE_TOTAL_STEPS }, (_, i) => (
         <View
           key={i}
-          style={[dots.dot, i + 1 === current ? dots.active : dots.inactive]}
+          style={[
+            shellStyles.progressSegment,
+            i < step ? shellStyles.progressFilled : shellStyles.progressEmpty,
+          ]}
         />
       ))}
     </View>
   );
 }
 
-const dots = StyleSheet.create({
-  row: { flexDirection: 'row', gap: Spacing.space2, justifyContent: 'center' } as ViewStyle,
-  dot: { width: 8, height: 8, borderRadius: 4 } as ViewStyle,
-  active: { backgroundColor: Colors.primary } as ViewStyle,
-  inactive: { backgroundColor: Colors.bg.surface } as ViewStyle,
-});
+function OBEyebrow({ children, optional }: { children: string; optional?: boolean }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+      <Text style={shellStyles.eyebrow}>{children}</Text>
+      {optional && (
+        <Text style={shellStyles.eyebrowOptional}>optional</Text>
+      )}
+    </View>
+  );
+}
 
-// ─── Mechanism options ────────────────────────────────────────────────────────
+function OBDivider() {
+  return <View style={shellStyles.divider} />;
+}
 
-const MECHANISM_OPTIONS = [
-  { value: 'gradual', label: 'Gradual' },
-  { value: 'acute', label: 'Acute' },
-  { value: 'post_surgery', label: 'Post-surgery' },
-  { value: 'unknown', label: 'Not sure' },
-] as const;
-
-const GENDER_OPTIONS = [
-  { value: 'female', label: 'Female' },
-  { value: 'male', label: 'Male' },
-  { value: 'non_binary', label: 'Non-binary' },
-  { value: 'prefer_not_to_say', label: 'Prefer not to say' },
-];
-
-const IRRITABILITY_OPTIONS = [
-  { value: 'low', label: 'Low' },
-  { value: 'moderate', label: 'Moderate' },
-  { value: 'high', label: 'High' },
-] as const;
+function FieldBlock({ label, optional, children }: {
+  label: string;
+  optional?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={shellStyles.fieldBlock}>
+      <OBEyebrow optional={optional}>{label}</OBEyebrow>
+      {children}
+    </View>
+  );
+}
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -96,15 +228,22 @@ export default function IntakeScreen() {
     submitIntake,
   } = useIntakeForm();
 
+  const STEP_TITLES = ['About you', 'Your injury', 'How you feel', "What's your goal?"];
+  const STEP_SUBTITLES = [
+    "Helps us calibrate your plan's intensity.",
+    'Helps us set the right starting point.',
+    "Sets your baseline. Be honest — there's no wrong answer.",
+    'This shapes the entire plan. You can update it later.',
+  ];
+
   async function handleNext() {
     if (currentStep < INTAKE_TOTAL_STEPS) {
       goToNextStep();
     } else {
       const { error } = await submitIntake();
       if (!error) {
-        router.replace('/(onboarding)/goal-selection');
+        router.replace('/(onboarding)/plan-generation');
       } else {
-        console.error('[intake] submitIntake error:', error);
         Alert.alert('Could not save', error);
       }
     }
@@ -118,267 +257,385 @@ export default function IntakeScreen() {
     }
   }
 
+  const isLastStep = currentStep === INTAKE_TOTAL_STEPS;
+  const ctaLabel = isLastStep ? 'Build my plan' : 'Next';
+
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={handleBack}
-          style={styles.backTouchable}
           accessibilityRole="button"
           accessibilityLabel="Back"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <Text style={styles.backLabel}>Back</Text>
         </TouchableOpacity>
-        <StepDots current={currentStep} total={INTAKE_TOTAL_STEPS} />
-        {/* Spacer to center dots */}
-        <View style={styles.backTouchable} />
+        <ProgressBars step={currentStep} />
       </View>
+
+      {/* Title block */}
+      <View style={styles.titleBlock}>
+        <Text style={styles.title}>{STEP_TITLES[currentStep - 1]}</Text>
+        <Text style={styles.subtitle}>{STEP_SUBTITLES[currentStep - 1]}</Text>
+      </View>
+
+      <View style={styles.hairline} />
 
       <ScrollView
         contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         {currentStep === 1 && (
-          <Step1
-            data={formData.step1}
-            onUpdate={updateStep1}
-            error={validationError}
-          />
+          <Step1 data={formData.step1} onUpdate={updateStep1} />
         )}
         {currentStep === 2 && (
-          <Step2
-            data={formData.step2}
-            onUpdate={updateStep2}
-            error={validationError}
-          />
+          <Step2 data={formData.step2} onUpdate={updateStep2} />
         )}
         {currentStep === 3 && (
-          <Step3
-            data={formData.step3}
-            onUpdate={updateStep3}
-            error={validationError}
-          />
+          <Step3 data={formData.step3} onUpdate={updateStep3} />
         )}
         {currentStep === 4 && (
-          <Step4
-            data={formData.step4}
-            onUpdate={updateStep4}
-            error={validationError}
-          />
+          <Step4 data={formData.step4} onUpdate={updateStep4} />
         )}
+
+        {validationError && (
+          <Text style={styles.errorText}>{validationError}</Text>
+        )}
+        <View style={{ height: 12 }} />
       </ScrollView>
 
+      {/* Footer */}
       <View style={styles.footer}>
         <Button
-          label={currentStep === INTAKE_TOTAL_STEPS ? 'Continue to goals' : 'Next'}
+          label={ctaLabel}
           onPress={handleNext}
           loading={isSubmitting}
+          arrow="→"
         />
       </View>
-
-      {Platform.OS === 'ios' && (
-        <InputAccessoryView nativeID={AGE_ACCESSORY_ID}>
-          <View style={styles.inputAccessoryBar}>
-            <TouchableOpacity
-              onPress={() => Keyboard.dismiss()}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              style={styles.inputAccessoryDoneButton}
-            >
-              <Text style={styles.inputAccessoryDoneText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </InputAccessoryView>
-      )}
     </SafeAreaView>
   );
 }
 
-// ─── Step 1: Basic info ───────────────────────────────────────────────────────
+// ─── Step 1: About you ────────────────────────────────────────────────────────
+
+const AGE_OPTIONS: PillOption[] = [
+  { value: 'u25', label: 'Under 25' },
+  { value: '25-34', label: '25–34' },
+  { value: '35-44', label: '35–44' },
+  { value: '45-54', label: '45–54' },
+  { value: '55-64', label: '55–64' },
+  { value: '65plus', label: '65+' },
+];
+
+const GENDER_OPTIONS: PillOption[] = [
+  { value: 'female', label: 'Female' },
+  { value: 'male', label: 'Male' },
+  { value: 'nonbinary', label: 'Non-binary' },
+  { value: 'prefer_not', label: 'Prefer not to say' },
+];
+
+const ACTIVITY_OPTIONS: PillOption[] = [
+  { value: 'sedentary', label: 'Mostly sedentary' },
+  { value: 'recreational', label: 'Recreational' },
+  { value: 'regular', label: 'Regular gym / sport' },
+  { value: 'competitive', label: 'Competitive athlete' },
+];
 
 function Step1({
   data,
   onUpdate,
-  error,
 }: {
   data: ReturnType<typeof useIntakeForm>['formData']['step1'];
   onUpdate: (d: Partial<typeof data>) => void;
-  error: string | null;
 }) {
   return (
     <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>Let's start with the basics</Text>
-      <Text style={styles.stepSubtitle}>
-        This helps us calibrate the intensity of your plan.
-      </Text>
-      <View style={styles.fields}>
-        <FormField
-          label="Your age"
-          value={data.age}
-          onChangeText={(v) => onUpdate({ age: v })}
-          keyboardType="number-pad"
-          placeholder="e.g. 34"
-          inputAccessoryViewID={Platform.OS === 'ios' ? AGE_ACCESSORY_ID : undefined}
-          error={error?.includes('age') ? error : undefined}
-        />
-        <View>
-          <Text style={styles.fieldLabel}>Gender</Text>
-          <SegmentedSelector
-            options={GENDER_OPTIONS}
-            selected={data.gender || null}
-            onChange={(v) => onUpdate({ gender: v })}
-          />
-        </View>
-        {error && !error.includes('age') && (
-          <Text style={styles.errorText}>{error}</Text>
-        )}
-      </View>
+      <FieldBlock label="Your age">
+        <OBPills cols={3} options={AGE_OPTIONS} value={data.age_bracket} onChange={(v) => onUpdate({ age_bracket: v })} />
+      </FieldBlock>
+
+      <OBDivider />
+
+      <FieldBlock label="Gender">
+        <OBPills cols={2} options={GENDER_OPTIONS} value={data.gender} onChange={(v) => onUpdate({ gender: v })} />
+      </FieldBlock>
+
+      <OBDivider />
+
+      <FieldBlock label="Activity level">
+        <OBPills cols={2} options={ACTIVITY_OPTIONS} value={data.activity_level} onChange={(v) => onUpdate({ activity_level: v })} />
+      </FieldBlock>
     </View>
   );
 }
 
-// ─── Step 2: Injury history ───────────────────────────────────────────────────
+// ─── Step 2: Your injury ──────────────────────────────────────────────────────
+
+const DURATION_OPTIONS: PillOption[] = [
+  { value: 'u1m', label: 'Under 1 month' },
+  { value: '1-3m', label: '1–3 months' },
+  { value: '3-6m', label: '3–6 months' },
+  { value: '6-12m', label: '6–12 months' },
+  { value: '1-2y', label: '1–2 years' },
+  { value: '2yplus', label: '2+ years' },
+];
+
+const MECHANISM_OPTIONS: PillOption[] = [
+  { value: 'gradual', label: 'Gradually' },
+  { value: 'acute', label: 'Acute event' },
+  { value: 'postsurg', label: 'Post-surgery' },
+  { value: 'unsure', label: 'Not sure' },
+];
+
+const TREATMENT_OPTIONS: PillOption[] = [
+  { value: 'nothing', label: 'Nothing yet' },
+  { value: 'physio', label: 'Physiotherapy' },
+  { value: 'steroid', label: 'Steroid injection' },
+  { value: 'rest', label: 'Rest only' },
+  { value: 'surgery', label: 'Surgery' },
+  { value: 'other', label: 'Other' },
+];
 
 function Step2({
   data,
   onUpdate,
-  error,
 }: {
   data: ReturnType<typeof useIntakeForm>['formData']['step2'];
   onUpdate: (d: Partial<typeof data>) => void;
-  error: string | null;
 }) {
   return (
     <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>About your injury</Text>
-      <Text style={styles.stepSubtitle}>
-        Understanding your injury history helps us set the right starting point.
-      </Text>
-      <View style={styles.fields}>
-        <FormField
-          label="When did your symptoms start? (approximate)"
-          value={data.injury_onset_date}
-          onChangeText={(v) => onUpdate({ injury_onset_date: v })}
-          placeholder="e.g. 2024-09-15 or 'about 6 months ago'"
-          returnKeyType="done"
-          error={error?.includes('onset') ? error : undefined}
-        />
-        <View>
-          <Text style={styles.fieldLabel}>How did the injury occur?</Text>
-          <SegmentedSelector
-            options={[...MECHANISM_OPTIONS]}
-            selected={data.mechanism}
-            onChange={(v) =>
-              onUpdate({ mechanism: v as typeof data.mechanism })
-            }
-          />
-        </View>
-        {error && <Text style={styles.errorText}>{error}</Text>}
-      </View>
+      <FieldBlock label="How long have you had symptoms?">
+        <OBPills cols={2} options={DURATION_OPTIONS} value={data.symptom_duration} onChange={(v) => onUpdate({ symptom_duration: v })} />
+      </FieldBlock>
+
+      <OBDivider />
+
+      <FieldBlock label="How did it start?">
+        <OBPills cols={2} options={MECHANISM_OPTIONS} value={data.mechanism} onChange={(v) => onUpdate({ mechanism: v })} />
+      </FieldBlock>
+
+      <OBDivider />
+
+      <FieldBlock label="Treatments tried" optional>
+        <OBChips options={TREATMENT_OPTIONS} value={data.treatments} onChange={(v) => onUpdate({ treatments: v })} />
+      </FieldBlock>
     </View>
   );
 }
 
-// ─── Step 3: Treatment & background ──────────────────────────────────────────
+// ─── Step 3: How you feel ─────────────────────────────────────────────────────
+
+const IRRITABILITY_OPTIONS: PillOption[] = [
+  { value: 'low', label: 'Low' },
+  { value: 'moderate', label: 'Moderate' },
+  { value: 'high', label: 'High' },
+];
+
+const SYMPTOM_OPTIONS: PillOption[] = [
+  { value: 'sitting', label: 'Sitting pain' },
+  { value: 'morning', label: 'Morning stiffness' },
+  { value: 'numbness', label: 'Numbness' },
+  { value: 'tingling', label: 'Tingling' },
+  { value: 'radiating', label: 'Radiating pain' },
+  { value: 'none', label: 'None of these' },
+];
 
 function Step3({
   data,
   onUpdate,
-  error,
 }: {
   data: ReturnType<typeof useIntakeForm>['formData']['step3'];
   onUpdate: (d: Partial<typeof data>) => void;
-  error: string | null;
 }) {
   return (
     <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>Treatment & training</Text>
-      <Text style={styles.stepSubtitle}>
-        Tell us what you've already tried and what your activity background looks like.
-      </Text>
-      <View style={styles.fields}>
-        <FormField
-          label="Any prior treatment? (optional)"
-          value={data.prior_treatment}
-          onChangeText={(v) => onUpdate({ prior_treatment: v })}
-          multiline
-          placeholder="e.g. physio sessions, steroid injection, rest only, nothing yet"
-          returnKeyType="default"
+      <FieldBlock label="Hamstring irritability">
+        <Text style={styles.fieldHint}>
+          <Text style={styles.fieldHintBold}>Low</Text>
+          {' — minor discomfort that settles quickly · '}
+          <Text style={styles.fieldHintBold}>Moderate</Text>
+          {' — noticeable, lingers after activity · '}
+          <Text style={styles.fieldHintBold}>High</Text>
+          {' — flares easily, days to calm'}
+        </Text>
+        <OBPills
+          cols={3}
+          options={IRRITABILITY_OPTIONS}
+          value={data.irritability_level ?? ''}
+          onChange={(v) => onUpdate({ irritability_level: v as typeof data.irritability_level })}
         />
-        <FormField
-          label="Your training background"
-          value={data.training_background}
-          onChangeText={(v) => onUpdate({ training_background: v })}
-          multiline
-          placeholder="e.g. recreational runner, 3x/week strength training, mostly sedentary"
-          returnKeyType="default"
-          error={error?.includes('training') ? error : undefined}
-        />
-        {error && !error.includes('training') && (
-          <Text style={styles.errorText}>{error}</Text>
-        )}
-      </View>
+      </FieldBlock>
+
+      <OBDivider />
+
+      <PainScale
+        value={data.pain_level_baseline}
+        onValueChange={(v) => onUpdate({ pain_level_baseline: v })}
+        label="Pain at rest right now"
+      />
+
+      <OBDivider />
+
+      <FieldBlock label="Other symptoms" optional>
+        <OBChips options={SYMPTOM_OPTIONS} value={data.symptoms} onChange={(v) => onUpdate({ symptoms: v })} />
+      </FieldBlock>
     </View>
   );
 }
 
-// ─── Step 4: Current status ───────────────────────────────────────────────────
+// ─── Step 4: Your goal ────────────────────────────────────────────────────────
+
+type RehabGoalDesign = 'daily' | 'running' | 'sport' | 'other';
+
+interface GoalOption {
+  value: RehabGoalDesign;
+  title: string;
+  description: string;
+}
+
+const GOAL_OPTIONS: GoalOption[] = [
+  {
+    value: 'daily',
+    title: 'Pain-free daily life',
+    description: 'Reduce pain with everyday activities like sitting, walking, and climbing stairs.',
+  },
+  {
+    value: 'running',
+    title: 'Return to running',
+    description: 'Build back to comfortable running, starting from where you are now.',
+  },
+  {
+    value: 'sport',
+    title: 'Return to sport',
+    description: 'Get back to your sport — field sports, cycling, gym training, or other athletic activity.',
+  },
+  {
+    value: 'other',
+    title: 'Something else',
+    description: "Your goal is unique. We'll start conservatively and adapt as we learn more.",
+  },
+];
+
+function OBGoalCard({ option, selected, onSelect }: {
+  option: GoalOption;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onSelect}
+      activeOpacity={0.85}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      accessibilityLabel={option.title}
+      accessibilityHint={option.description}
+      style={[goalStyles.card, selected && goalStyles.cardSelected]}
+    >
+      <Text style={[goalStyles.cardTitle, selected && goalStyles.cardTitleSelected]}>
+        {option.title}
+      </Text>
+      <Text style={goalStyles.cardDesc}>{option.description}</Text>
+    </TouchableOpacity>
+  );
+}
+
+const goalStyles = StyleSheet.create({
+  card: {
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border.faint,
+    borderLeftWidth: 3,
+    borderLeftColor: 'transparent',
+    backgroundColor: 'transparent',
+  } as ViewStyle,
+  cardSelected: {
+    backgroundColor: Colors.bg.surfaceRaised,
+    borderColor: Colors.primary,
+    borderLeftColor: Colors.primary,
+  } as ViewStyle,
+  cardTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 15,
+    color: Colors.text.primary,
+    marginBottom: 5,
+  } as TextStyle,
+  cardTitleSelected: {
+    color: Colors.primaryDark,
+  } as TextStyle,
+  cardDesc: {
+    fontFamily: FontFamily.regular,
+    fontSize: 13,
+    color: Colors.text.secondary,
+    lineHeight: 13 * 1.45,
+  } as TextStyle,
+});
 
 function Step4({
   data,
   onUpdate,
-  error,
 }: {
   data: ReturnType<typeof useIntakeForm>['formData']['step4'];
   onUpdate: (d: Partial<typeof data>) => void;
-  error: string | null;
 }) {
   return (
-    <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>How are you feeling now?</Text>
-      <Text style={styles.stepSubtitle}>
-        This sets your starting baseline. Be honest — there's no wrong answer.
-      </Text>
-      <View style={styles.fields}>
-        <View>
-          <Text style={styles.fieldLabel}>How irritable is your hamstring right now?</Text>
-          <Text style={styles.fieldHint}>
-            Low = minor discomfort that settles quickly.{'\n'}
-            Moderate = noticeable pain that lingers after activity.{'\n'}
-            High = pain that flares easily and takes days to settle.
-          </Text>
-          <SegmentedSelector
-            options={[...IRRITABILITY_OPTIONS]}
-            selected={data.irritability_level}
-            onChange={(v) =>
-              onUpdate({ irritability_level: v as typeof data.irritability_level })
-            }
-          />
-        </View>
-
-        <PainScale
-          value={data.pain_level_baseline}
-          onValueChange={(v) => onUpdate({ pain_level_baseline: v })}
-          label="Pain at rest right now (0–10)"
+    <View style={[styles.stepContainer, { gap: 10 }]}>
+      {GOAL_OPTIONS.map((option) => (
+        <OBGoalCard
+          key={option.value}
+          option={option}
+          selected={data.goal === option.value}
+          onSelect={() => onUpdate({ goal: option.value })}
         />
-
-        <FormField
-          label="Any other symptoms? (optional)"
-          value={data.current_symptoms}
-          onChangeText={(v) => onUpdate({ current_symptoms: v })}
-          multiline
-          placeholder="e.g. numbness, tingling, sharp pain with sitting, morning stiffness"
-          returnKeyType="default"
-        />
-
-        {error && <Text style={styles.errorText}>{error}</Text>}
-      </View>
+      ))}
     </View>
   );
 }
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
+
+const shellStyles = StyleSheet.create({
+  progressRow: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 5,
+  } as ViewStyle,
+  progressSegment: {
+    flex: 1,
+    height: 3,
+  } as ViewStyle,
+  progressFilled: {
+    backgroundColor: Colors.moss,
+  } as ViewStyle,
+  progressEmpty: {
+    backgroundColor: Colors.bg.surfaceStrong,
+  } as ViewStyle,
+  eyebrow: {
+    fontFamily: FontFamily.bold,
+    fontSize: 10,
+    letterSpacing: 10 * 0.16,
+    textTransform: 'uppercase',
+    color: Colors.text.muted,
+    lineHeight: 10,
+  } as TextStyle,
+  eyebrowOptional: {
+    fontFamily: FontFamily.regular,
+    fontSize: 10,
+    color: Colors.text.muted,
+    opacity: 0.75,
+  } as TextStyle,
+  divider: {
+    height: 1,
+    backgroundColor: Colors.border.faint,
+  } as ViewStyle,
+  fieldBlock: {
+    gap: 10,
+  } as ViewStyle,
+});
 
 const styles = StyleSheet.create({
   safe: {
@@ -389,89 +646,82 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.space5,
-    paddingVertical: Spacing.space4,
-  } as ViewStyle,
-
-  backTouchable: {
-    minWidth: 44,
-    minHeight: 44,
-    justifyContent: 'center',
+    gap: 14,
+    paddingHorizontal: Spacing.screenHorizontal,
+    paddingTop: Spacing.space4,
+    paddingBottom: Spacing.space4,
   } as ViewStyle,
 
   backLabel: {
-    ...Typography.labelLarge,
+    fontFamily: FontFamily.bold,
+    fontSize: 11,
+    letterSpacing: 11 * 0.12,
+    textTransform: 'uppercase',
     color: Colors.text.secondary,
   } as TextStyle,
+
+  titleBlock: {
+    paddingHorizontal: Spacing.screenHorizontal,
+    paddingBottom: Spacing.space4,
+    gap: 8,
+  } as ViewStyle,
+
+  title: {
+    fontFamily: FontFamily.black,
+    fontSize: 34,
+    lineHeight: 34 * 0.97,
+    letterSpacing: 34 * -0.025,
+    color: Colors.text.primary,
+  } as TextStyle,
+
+  subtitle: {
+    fontFamily: FontFamily.regular,
+    fontSize: 14,
+    lineHeight: 14 * 1.45,
+    color: Colors.text.secondary,
+  } as TextStyle,
+
+  hairline: {
+    height: 1,
+    backgroundColor: Colors.border.default,
+  } as ViewStyle,
 
   content: {
     flexGrow: 1,
-    paddingHorizontal: Spacing.space5,
-    paddingBottom: Spacing.space8,
-  } as ViewStyle,
-
-  footer: {
-    paddingHorizontal: Spacing.space5,
-    paddingBottom: Spacing.space6,
-    paddingTop: Spacing.space4,
+    paddingHorizontal: Spacing.screenHorizontal,
+    paddingTop: 18,
   } as ViewStyle,
 
   stepContainer: {
-    gap: Spacing.space6,
+    gap: 20,
   } as ViewStyle,
-
-  stepTitle: {
-    ...Typography.h1,
-    color: Colors.text.primary,
-    marginTop: Spacing.space2,
-  } as TextStyle,
-
-  stepSubtitle: {
-    ...Typography.bodyLarge,
-    color: Colors.text.secondary,
-    marginTop: -Spacing.space2,
-  } as TextStyle,
-
-  fields: {
-    gap: Spacing.space6,
-  } as ViewStyle,
-
-  fieldLabel: {
-    ...Typography.label,
-    color: Colors.text.secondary,
-    marginBottom: Spacing.space2,
-  } as TextStyle,
 
   fieldHint: {
-    ...Typography.bodySmall,
+    fontFamily: FontFamily.regular,
+    fontSize: 12,
+    color: Colors.text.muted,
+    lineHeight: 12 * 1.55,
+    marginBottom: 4,
+  } as TextStyle,
+
+  fieldHintBold: {
+    fontFamily: FontFamily.bold,
     color: Colors.text.secondary,
-    marginBottom: Spacing.space3,
   } as TextStyle,
 
   errorText: {
-    ...Typography.bodySmall,
+    fontFamily: FontFamily.regular,
+    fontSize: 13,
     color: Colors.semantic.danger,
+    marginTop: Spacing.space4,
   } as TextStyle,
 
-  inputAccessoryBar: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    backgroundColor: Colors.bg.surfaceRaised,
-    borderTopWidth: StyleSheet.hairlineWidth,
+  footer: {
+    paddingHorizontal: Spacing.screenHorizontal,
+    paddingBottom: 42,
+    paddingTop: 10,
+    borderTopWidth: 1,
     borderTopColor: Colors.border.faint,
-    paddingHorizontal: Spacing.space5,
-    paddingVertical: Spacing.space2,
+    backgroundColor: Colors.bg.base,
   } as ViewStyle,
-
-  inputAccessoryDoneButton: {
-    paddingHorizontal: Spacing.space3,
-    paddingVertical: Spacing.space1,
-  } as ViewStyle,
-
-  inputAccessoryDoneText: {
-    ...Typography.labelLarge,
-    color: Colors.primary,
-  } as TextStyle,
 });

@@ -20,3 +20,4 @@ export { PreWorkoutRow } from './PreWorkoutRow';
 export { InProgressRow } from './InProgressRow';
 export { StatStrip } from './StatStrip';
 export type { StatItem } from './StatStrip';
+export { SpinnerRing } from './SpinnerRing';

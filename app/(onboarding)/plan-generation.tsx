@@ -3,15 +3,14 @@ import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
   Animated,
   ViewStyle,
   TextStyle,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Button } from '@/components/ui';
-import { Colors, Typography, Spacing } from '@/theme';
+import { Button, SpinnerRing } from '@/components/ui';
+import { Colors, Typography, Spacing, FontFamily } from '@/theme';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { updateOnboardingStep } from '@/services/profiles';
@@ -120,20 +119,13 @@ export default function PlanGenerationScreen() {
       <View style={styles.content}>
         {(status === 'generating' || status === 'retrying') && (
           <View style={styles.center}>
-            <ActivityIndicator
-              size="large"
-              color={Colors.primary}
-              style={styles.spinner}
-            />
+            <SpinnerRing />
             <Text style={styles.headline}>Building your plan</Text>
             <Animated.Text style={[styles.statusMessage, { opacity: fadeAnim }]}>
               {status === 'retrying'
                 ? 'Taking a little longer than usual...'
                 : STATUS_MESSAGES[messageIndex]}
             </Animated.Text>
-            <Text style={styles.hint}>
-              This usually takes about 15–30 seconds.
-            </Text>
           </View>
         )}
 
@@ -184,12 +176,11 @@ const styles = StyleSheet.create({
     maxWidth: 320,
   } as ViewStyle,
 
-  spinner: {
-    marginBottom: Spacing.space4,
-  } as ViewStyle,
-
   headline: {
-    ...Typography.h1,
+    fontFamily: FontFamily.black,
+    fontSize: 30,
+    lineHeight: 30 * 1.05,
+    letterSpacing: 30 * -0.025,
     color: Colors.text.primary,
     textAlign: 'center',
   } as TextStyle,
@@ -197,12 +188,6 @@ const styles = StyleSheet.create({
   statusMessage: {
     ...Typography.body,
     color: Colors.text.secondary,
-    textAlign: 'center',
-  } as TextStyle,
-
-  hint: {
-    ...Typography.bodySmall,
-    color: Colors.text.disabled,
     textAlign: 'center',
   } as TextStyle,
 

@@ -4,8 +4,8 @@
  * Covers:
  * - Renders each step correctly
  * - Back button on step 1 calls router.back()
- * - Submit errors are displayed (regression: previously silently dropped)
- * - Navigation to goal-selection on successful submit
+ * - Submit errors are displayed
+ * - Navigation to plan-generation on successful submit (goal-selection bypassed)
  */
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
@@ -33,7 +33,6 @@ jest.mock('@/hooks/useAuth', () => ({
 const mockSubmitIntake = jest.fn();
 const mockGoToNextStep = jest.fn();
 const mockGoToPrevStep = jest.fn();
-const mockUpdateStep1 = jest.fn();
 
 jest.mock('@/hooks/useIntakeForm', () => ({
   INTAKE_TOTAL_STEPS: 4,
@@ -47,14 +46,14 @@ function buildFormState(overrides: Partial<ReturnType<typeof useIntakeForm>> = {
   return {
     currentStep: 1,
     formData: {
-      step1: { age: '', gender: null },
-      step2: { injury_onset_date: '', mechanism: null },
-      step3: { prior_treatment: '', training_background: '' },
-      step4: { irritability_level: null, pain_level_baseline: 0, current_symptoms: '' },
+      step1: { age_bracket: '', gender: '', activity_level: '' },
+      step2: { symptom_duration: '', mechanism: '', treatments: [] },
+      step3: { irritability_level: null, pain_level_baseline: 0, symptoms: [] },
+      step4: { goal: '' },
     },
     validationError: null,
     isSubmitting: false,
-    updateStep1: mockUpdateStep1,
+    updateStep1: jest.fn(),
     updateStep2: jest.fn(),
     updateStep3: jest.fn(),
     updateStep4: jest.fn(),
@@ -79,31 +78,31 @@ describe('IntakeScreen — rendering', () => {
 
   it('shows step 1 title on step 1', () => {
     render(<IntakeScreen />);
-    expect(screen.getByText("Let's start with the basics")).toBeTruthy();
+    expect(screen.getByText('About you')).toBeTruthy();
   });
 
   it('shows step 2 title on step 2', () => {
     mockUseIntakeForm.mockReturnValue(buildFormState({ currentStep: 2 }));
     render(<IntakeScreen />);
-    expect(screen.getByText('About your injury')).toBeTruthy();
+    expect(screen.getByText('Your injury')).toBeTruthy();
   });
 
   it('shows step 3 title on step 3', () => {
     mockUseIntakeForm.mockReturnValue(buildFormState({ currentStep: 3 }));
     render(<IntakeScreen />);
-    expect(screen.getByText('Treatment & training')).toBeTruthy();
+    expect(screen.getByText('How you feel')).toBeTruthy();
   });
 
   it('shows step 4 title on step 4', () => {
     mockUseIntakeForm.mockReturnValue(buildFormState({ currentStep: 4 }));
     render(<IntakeScreen />);
-    expect(screen.getByText('How are you feeling now?')).toBeTruthy();
+    expect(screen.getByText("What's your goal?")).toBeTruthy();
   });
 
-  it('shows "Continue to goals" on the last step', () => {
+  it('shows "Build my plan" on the last step', () => {
     mockUseIntakeForm.mockReturnValue(buildFormState({ currentStep: 4 }));
     render(<IntakeScreen />);
-    expect(screen.getByText('Continue to goals')).toBeTruthy();
+    expect(screen.getByText('Build my plan')).toBeTruthy();
   });
 
   it('shows "Next" button on non-final steps', () => {
@@ -157,7 +156,7 @@ describe('IntakeScreen — submit error handling', () => {
 
     render(<IntakeScreen />);
     await act(async () => {
-      fireEvent.press(screen.getByText('Continue to goals'));
+      fireEvent.press(screen.getByText('Build my plan'));
     });
 
     await waitFor(() => {
@@ -166,17 +165,17 @@ describe('IntakeScreen — submit error handling', () => {
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
-  it('navigates to goal-selection when submitIntake succeeds', async () => {
+  it('navigates to plan-generation (not goal-selection) when submitIntake succeeds', async () => {
     mockSubmitIntake.mockResolvedValue({ error: null });
     mockUseIntakeForm.mockReturnValue(buildFormState({ currentStep: 4 }));
 
     render(<IntakeScreen />);
     await act(async () => {
-      fireEvent.press(screen.getByText('Continue to goals'));
+      fireEvent.press(screen.getByText('Build my plan'));
     });
 
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith('/(onboarding)/goal-selection');
+      expect(mockReplace).toHaveBeenCalledWith('/(onboarding)/plan-generation');
     });
   });
 });

@@ -43,6 +43,12 @@ jest.mock('@/lib/supabase', () => ({
   },
 }));
 
+// Prevent the rotating spinner animation from creating RAF loops that
+// interfere with jest.useFakeTimers() in the error-state tests.
+jest.mock('@/components/ui/SpinnerRing', () => ({
+  SpinnerRing: () => null,
+}));
+
 // Import AFTER the mock registration so we get the mocked version.
 import { supabase } from '@/lib/supabase';
 const mockInvoke = supabase.functions.invoke as jest.Mock;
