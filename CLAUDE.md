@@ -51,6 +51,18 @@ npx jest --testNamePattern="submit.*high pain"
 
 These rules are non-negotiable. Follow them on every feature, every session.
 
+### Feature Development Process
+
+Every feature must follow this sequence. No step may be skipped, including on simple changes.
+
+1. **Plan** — Write the full plan: what changes, what files, what tests. For UI screens, re-share design files and plan one screen at a time.
+2. **Confirm** — Wait for explicit user approval before writing any code. "Looks good" or equivalent is required.
+3. **Implement** — Build the feature with complete tests following all rules below.
+4. **Pause for manual testing** — Stop and ask the user to test on device before continuing.
+5. **Fix issues** — Trace the execution path and identify root cause before proposing any fix. Never guess.
+6. **Commit/push** — Once both parties are satisfied, commit. Push and merge to `main` when the feature is complete.
+7. **Retrospective** — Document what went wrong (if anything), any new pitfalls, process improvements. Present draft to user for approval before updating memory. **Mandatory — never skip, even on a clean run.**
+
 ### Branching
 
 Always create a new branch for each feature. Never develop directly on `main`. Merge to `main` only when the feature is complete and all tests pass.
