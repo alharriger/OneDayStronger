@@ -113,13 +113,13 @@ const styles = StyleSheet.create({
     letterSpacing: 2.2,
     textTransform: 'uppercase',
     color: Colors.primary,
-    lineHeight: 10,
+    lineHeight: 14,
   } as TextStyle,
 
   titleLine1: {
     fontFamily: FontFamily.black,
     fontSize: 72,
-    lineHeight: 72 * 0.91,
+    lineHeight: 72,
     letterSpacing: 72 * -0.04,
     color: Colors.text.onDark,
   } as TextStyle,
@@ -127,9 +127,10 @@ const styles = StyleSheet.create({
   titleLine2: {
     fontFamily: FontFamily.black,
     fontSize: 72,
-    lineHeight: 72 * 0.91,
+    lineHeight: 72,
     letterSpacing: 72 * -0.04,
     color: Colors.primary,
+    marginTop: -10,
   } as TextStyle,
 
   divider: {
