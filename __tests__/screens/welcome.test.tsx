@@ -24,8 +24,15 @@ describe('WelcomeScreen', () => {
     expect(() => render(<WelcomeScreen />)).not.toThrow();
   });
 
-  it('displays the app name', () => {
+  it('displays the hero title', () => {
     render(<WelcomeScreen />);
+    expect(screen.getByText('One Day')).toBeTruthy();
+    expect(screen.getByText('Stronger.')).toBeTruthy();
+  });
+
+  it('displays the eyebrow', () => {
+    render(<WelcomeScreen />);
+    // Underlying string is natural-case; textTransform uppercase is in StyleSheet
     expect(screen.getByText('One Day Stronger')).toBeTruthy();
   });
 
@@ -39,7 +46,7 @@ describe('WelcomeScreen', () => {
     expect(screen.getByText(/educational tool/i)).toBeTruthy();
   });
 
-  it('displays the subtitle describing the app', () => {
+  it('displays the body copy mentioning the condition', () => {
     render(<WelcomeScreen />);
     expect(screen.getByText(/proximal hamstring tendinopathy/i)).toBeTruthy();
   });
